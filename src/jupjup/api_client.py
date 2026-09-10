@@ -160,7 +160,7 @@ class Lost112ApiClient:
     def _request_xml(self, url: str, params: Mapping[str, str]) -> ET.Element:
         encoded = urllib.parse.urlencode(params)
         request = urllib.request.Request(
-            f"{url}?{encoded}", headers={"User-Agent": "lost112-agent/0.1"}
+            f"{url}?{encoded}", headers={"User-Agent": "jupjup/0.1"}
         )
         try:
             with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:

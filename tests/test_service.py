@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 from datetime import date
 
-from lost112_agent.models import ApiSearchResponse, LostItemQuery, RecordSource, SearchRecord
-from lost112_agent.service import Lost112AgentService
+from jupjup.models import ApiSearchResponse, LostItemQuery, RecordSource, SearchRecord
+from jupjup.service import JupJupAgentService
 
 
 class PartialApiClient:
@@ -37,7 +37,7 @@ class PartialApiClient:
 class ServiceTest(unittest.TestCase):
     def test_partial_api_failure_keeps_available_results(self) -> None:
         query = LostItemQuery(item_name="지갑", lost_date=date(2026, 9, 9), search_ready=True)
-        service = Lost112AgentService(PartialApiClient())  # type: ignore[arg-type]
+        service = JupJupAgentService(PartialApiClient())  # type: ignore[arg-type]
 
         result = service.run(query)
 

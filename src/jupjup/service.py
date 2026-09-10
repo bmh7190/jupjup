@@ -10,7 +10,7 @@ from .models import AgentResult, LostItemQuery, RecordSource
 from .vision import VisionMatcher
 
 
-class Lost112AgentService:
+class JupJupAgentService:
     def __init__(
         self,
         api_client: Lost112ApiClient,

@@ -4,8 +4,8 @@ import unittest
 import xml.etree.ElementTree as ET
 from datetime import date
 
-from lost112_agent.api_client import API_DEFINITIONS, Lost112ApiClient
-from lost112_agent.models import RecordSource
+from jupjup.api_client import API_DEFINITIONS, Lost112ApiClient
+from jupjup.models import RecordSource
 
 
 FOUND_XML = """

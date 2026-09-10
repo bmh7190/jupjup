@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "lost112-agent"
+name = "jupjup"
 version = "0.1.0"
-description = "경찰청 유실물 API 3종을 조회하고 습득물 후보를 추천하는 LangChain Agent"
+description = "경찰청 유실물 API 3종을 조회하고 습득물 후보를 추천하는 JupJup LangChain Agent"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-lost112-agent = "lost112_agent.cli:main"
+jupjup = "jupjup.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

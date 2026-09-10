@@ -12,12 +12,12 @@ from .config import Settings
 from .demo import run_demo
 from .extractor import LostItemExtractor
 from .models import AgentResult, LostItemQuery
-from .service import Lost112AgentService
+from .service import JupJupAgentService
 from .vision import VisionMatcher
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="LOST112 분실물 자동 매칭 Agent")
+    parser = argparse.ArgumentParser(description="JupJup(줍줍) 분실물 자동 매칭 Agent")
     parser.add_argument("--text", help="대화형 입력 대신 한 문장으로 실행")
     parser.add_argument("--env", type=Path, help="사용할 .env 파일 경로")
     parser.add_argument("--vision", action="store_true", help="상위 후보 사진을 LLM으로 추가 판정")
@@ -110,7 +110,7 @@ def main() -> int:
             vision_matcher = VisionMatcher(
                 model_name=settings.openai_model, api_key=settings.openai_api_key
             )
-        service = Lost112AgentService(api_client, vision_matcher=vision_matcher)
+        service = JupJupAgentService(api_client, vision_matcher=vision_matcher)
         result = service.run(query)
     except (ValueError, RuntimeError) as exc:
         print(f"실행 오류: {exc}", file=sys.stderr)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from lost112_agent.privacy import mask_pii
+from jupjup.privacy import mask_pii
 
 
 class PrivacyTest(unittest.TestCase):

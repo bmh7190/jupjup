@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 from datetime import date
 
-from lost112_agent.matcher import LostItemMatcher
-from lost112_agent.models import LostItemQuery, RecordSource, SearchRecord
+from jupjup.matcher import LostItemMatcher
+from jupjup.models import LostItemQuery, RecordSource, SearchRecord
 
 
 class MatcherTest(unittest.TestCase):

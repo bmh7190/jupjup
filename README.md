@@ -1,4 +1,4 @@
-# LOST112 분실물 자동 매칭 Agent
+# JupJup (줍줍)
 
 사용자의 자연어에서 분실물 정보를 추출하고 경찰청 Open API 3종을 조회해 가능성이 높은 습득물 후보를 추천하는 1차 구현입니다.
 
@@ -15,7 +15,7 @@
 ## 구조
 
 ```text
-src/lost112_agent/
+src/jupjup/
 ├── config.py       # .env와 실행 설정
 ├── models.py       # Pydantic 데이터 모델
 ├── privacy.py      # LLM 전달 전 개인정보 마스킹
@@ -33,7 +33,7 @@ src/lost112_agent/
 ## 설치
 
 ```bash
-cd /Users/bmh7190/Documents/Codex/2026-09-10/new-chat/lost112-agent
+cd /Users/bmh7190/skala/skala-langchain/jupjup
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
@@ -48,38 +48,32 @@ OPENAI_API_KEY=OpenAI_API_키
 OPENAI_MODEL=gpt-4.1-mini
 ```
 
-기존 테스트 폴더의 키를 그대로 사용하려면 복사하지 않고 다음처럼 지정할 수도 있습니다.
-
-```bash
-lost112-agent --env ../outputs/.env
-```
-
-단, 자연어 추출을 실행하려면 해당 파일에 `OPENAI_API_KEY`도 있어야 합니다.
+기존 `.env`가 있다면 프로젝트 루트로 옮기거나 `--env` 뒤에 해당 파일의 절대경로를 지정할 수 있습니다. 자연어 추출에는 `OPENAI_API_KEY`가 필요합니다.
 
 ## 실행
 
 외부 API 없이 구조와 점수를 먼저 확인합니다.
 
 ```bash
-PYTHONPATH=src python -m lost112_agent.cli --demo
+PYTHONPATH=src python -m jupjup.cli --demo
 ```
 
 실제 대화형 실행:
 
 ```bash
-lost112-agent
+jupjup
 ```
 
 한 문장으로 실행:
 
 ```bash
-lost112-agent --text "어제 저녁 강남역에서 검은색 카드지갑을 잃어버렸어"
+jupjup --text "어제 저녁 강남역에서 검은색 카드지갑을 잃어버렸어"
 ```
 
 등록된 습득물 사진을 멀티모달 모델로 추가 평가하려면 `--vision`을 붙입니다. 사진이 없는 후보에는 적용되지 않으며 OpenAI API 비용이 발생합니다.
 
 ```bash
-lost112-agent --vision
+jupjup --vision
 ```
 
 ## 점수 기준
