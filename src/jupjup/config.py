@@ -55,14 +55,18 @@ class Settings:
     def from_env(cls, env_path: Path | None = None) -> "Settings":
         load_env_file(env_path)
         raw_service_key = os.getenv("DATA_GO_KR_SERVICE_KEY", "").strip()
+        raw_openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+        raw_openai_model = os.getenv("OPENAI_MODEL", "gpt-5.4-mini").strip()
         if not raw_service_key:
             raise ValueError("DATA_GO_KR_SERVICE_KEY가 없습니다. .env 파일을 확인하세요.")
 
         return cls(
             # Encoding 키와 Decoding 키를 동일하게 처리한 뒤 요청 시 한 번만 인코딩한다.
             data_service_key=unquote(raw_service_key),
-            openai_api_key=os.getenv("OPENAI_API_KEY") or None,
-            openai_model=os.getenv("OPENAI_MODEL", "gpt-5.4-mini"),
+            # Vercel 대시보드에서 붙여 넣을 때 생긴 줄바꿈이 인증 헤더에
+            # 포함되지 않도록 외부 환경변수도 파일 입력과 동일하게 정리한다.
+            openai_api_key=raw_openai_key or None,
+            openai_model=raw_openai_model or "gpt-5.4-mini",
             page_size=max(1, min(int(os.getenv("LOST112_PAGE_SIZE", "10")), 100)),
             timeout_seconds=max(1.0, float(os.getenv("LOST112_TIMEOUT_SECONDS", "15"))),
             detail_limit=max(0, int(os.getenv("LOST112_DETAIL_LIMIT", "5"))),

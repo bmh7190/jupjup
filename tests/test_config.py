@@ -11,6 +11,24 @@ from jupjup.config import Settings
 
 
 class SettingsTest(unittest.TestCase):
+    def test_host_environment_trims_openai_values(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            env_path = Path(directory) / ".env"
+            env_path.write_text("DATA_GO_KR_SERVICE_KEY=data-key\n", encoding="utf-8")
+
+            with patch.dict(
+                os.environ,
+                {
+                    "OPENAI_API_KEY": "project-key\n",
+                    "OPENAI_MODEL": "gpt-5.4-mini\n",
+                },
+                clear=True,
+            ):
+                settings = Settings.from_env(env_path)
+
+            self.assertEqual(settings.openai_api_key, "project-key")
+            self.assertEqual(settings.openai_model, "gpt-5.4-mini")
+
     def test_explicit_env_file_overrides_stale_shell_key(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             env_path = Path(directory) / ".env"
