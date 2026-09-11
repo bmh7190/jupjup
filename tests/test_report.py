@@ -3,7 +3,11 @@ from __future__ import annotations
 import unittest
 from datetime import date
 
-from jupjup.report import POLICE_REPORT_URL, build_lost_report_draft
+from jupjup.report import (
+    POLICE_REPORT_GUIDE_URL,
+    POLICE_REPORT_URL,
+    build_lost_report_draft,
+)
 
 
 class LostReportDraftTest(unittest.TestCase):
@@ -16,7 +20,9 @@ class LostReportDraftTest(unittest.TestCase):
             lost_place="강남역 2호선 승강장",
             region="서울 강남구",
             color="검정",
+            size="가로 11cm",
             brand="몽블랑",
+            quantity=1,
             features=["흰색 스티치", "교통카드 1장"],
             circumstances="퇴근길 열차에서 내린 뒤 분실을 확인함",
         )
@@ -25,7 +31,11 @@ class LostReportDraftTest(unittest.TestCase):
         self.assertEqual(draft.missing_essential_fields, [])
         self.assertIn("강남역 2호선 승강장", draft.copy_text)
         self.assertIn("흰색 스티치", draft.copy_text)
+        self.assertIn("분실 수량: 1", draft.copy_text)
+        self.assertIn("가로 11cm", draft.copy_text)
         self.assertEqual(draft.official_report_url, POLICE_REPORT_URL)
+        self.assertEqual(draft.official_guide_url, POLICE_REPORT_GUIDE_URL)
+        self.assertIn("cvlcptAply.do", draft.official_report_url)
         self.assertFalse(draft.auto_submitted)
 
     def test_missing_information_returns_question_and_improvement_tips(self) -> None:
@@ -34,6 +44,7 @@ class LostReportDraftTest(unittest.TestCase):
         self.assertFalse(draft.ready_for_user_review)
         self.assertIn("분실 날짜", draft.missing_essential_fields)
         self.assertIn("구체적인 분실 장소", draft.missing_essential_fields)
+        self.assertIn("분실 수량", draft.missing_recommended_fields)
         self.assertIsNotNone(draft.next_question)
         self.assertTrue(draft.improvement_tips)
 

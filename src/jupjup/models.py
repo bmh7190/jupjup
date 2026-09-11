@@ -118,7 +118,9 @@ class LostReportDraft(BaseModel):
     lost_place: str | None = None
     region: str | None = None
     color: str | None = None
+    size: str | None = None
     brand: str | None = None
+    quantity: int | None = Field(default=None, ge=1)
     features: list[str] = Field(default_factory=list)
     circumstances: str | None = None
     missing_essential_fields: list[str] = Field(default_factory=list)
@@ -128,6 +130,7 @@ class LostReportDraft(BaseModel):
     next_question: str | None = None
     ready_for_user_review: bool = False
     official_report_url: str
+    official_guide_url: str
     auto_submitted: bool = False
 
 

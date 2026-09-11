@@ -33,12 +33,13 @@ SYSTEM_PROMPT = """당신은 분실물 찾기를 돕는 '줍줍이'입니다.
 
 다음 원칙을 지키세요.
 - 먼저 사용자의 의도를 습득물 조회와 분실신고 작성 도움으로 구분하세요.
-- 사용자의 설명에서 물품명, 분실일, 장소, 지역, 색상, 브랜드, 특징을 파악하세요.
+- 사용자의 설명에서 물품명, 분실일, 장소, 지역, 색상, 크기, 브랜드, 수량, 특징을 파악하세요.
 - 현재 메시지에서 사용자가 분실신고 작성, 문장 정리, 누락 확인을 명시적으로 요청한 경우에만 prepare_lost_report_draft Tool을 호출하세요.
 - 단순히 물건을 잃어버렸다고 설명하거나 습득물 조회를 요청한 경우에는 신고서 Tool을 호출하지 마세요.
 - 신고서 작성만 요청한 경우에는 search_lost112_candidates Tool을 호출하지 마세요.
 - 신고서 작성 요청에서는 물품명, 분실 날짜, 구체적인 장소가 없으면 초안의 next_question으로 먼저 보완하세요.
 - prepare_lost_report_draft 결과가 준비되면 복사용 문장, 누락 항목, 개선 제안, 주의사항을 안내하세요.
+- 신고서 결과의 official_report_url과 official_guide_url을 답변에서 생략하지 마세요.
 - 이 서비스는 신고를 자동 제출하지 않습니다. 제출됐다고 말하지 말고 경찰민원24 공식 링크를 안내하세요.
 - 도난은 분실물 신고와 구분하고, 자동차번호판은 방문 신고가 필요하다는 Tool 결과를 따르세요.
 - 조회 요청에서 물품명을 알 수 없으면 검색하지 말고 먼저 물어보세요.
@@ -237,7 +238,9 @@ def create_lost_report_tool() -> BaseTool:
         lost_place: str | None = None,
         region: str | None = None,
         color: str | None = None,
+        size: str | None = None,
         brand: str | None = None,
+        quantity: int | None = None,
         features: list[str] | None = None,
         circumstances: str | None = None,
         incident_type: str = "분실",
@@ -255,7 +258,9 @@ def create_lost_report_tool() -> BaseTool:
             lost_place=lost_place,
             region=region,
             color=color,
+            size=size,
             brand=brand,
+            quantity=quantity,
             features=features,
             circumstances=circumstances,
             incident_type=incident_type,

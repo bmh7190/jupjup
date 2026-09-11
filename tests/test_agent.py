@@ -137,6 +137,8 @@ class ScriptedReportModel(BaseChatModel):
                             "item_name": "카드지갑",
                             "lost_date": "2026-09-10",
                             "lost_place": "강남역",
+                            "size": "가로 11cm",
+                            "quantity": 1,
                         },
                         "id": "report-call-1",
                     }
@@ -157,6 +159,9 @@ class AgentConfigurationTest(unittest.TestCase):
         self.assertIsNotNone(response.report_draft)
         assert response.report_draft is not None
         self.assertEqual(response.report_draft.item_name, "카드지갑")
+        self.assertEqual(response.report_draft.size, "가로 11cm")
+        self.assertEqual(response.report_draft.quantity, 1)
+        self.assertIn("cvlcptAply.do", response.report_draft.official_report_url)
         self.assertFalse(response.report_draft.auto_submitted)
 
         following_response = agent.chat("고마워", thread_id="report-test")

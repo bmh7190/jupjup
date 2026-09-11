@@ -69,7 +69,8 @@ def print_report_draft(draft: LostReportDraft) -> None:
         print(f"- 작성 팁: {tip}")
     for notice in draft.notices:
         print(f"- 확인: {notice}")
-    print(f"공식 신고 안내: {draft.official_report_url}")
+    print(f"경찰민원24 신고하기: {draft.official_report_url}")
+    print(f"공식 신고 안내: {draft.official_guide_url}")
 
 
 def print_chat_response(response: JupJupChatResponse, *, as_json: bool) -> None:

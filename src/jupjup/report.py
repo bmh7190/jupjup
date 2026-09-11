@@ -8,9 +8,13 @@ from .models import LostReportDraft
 from .privacy import mask_pii
 
 
-POLICE_REPORT_URL = (
+POLICE_REPORT_GUIDE_URL = (
     "https://minwon24.police.go.kr/cvlcpt/"
     "cvlcptGdInfo.do?cvlcptId=MW-001"
+)
+POLICE_REPORT_URL = (
+    "https://minwon24.police.go.kr/cvlcpt/"
+    "cvlcptAply.do?cvlcptId=MW-001"
 )
 
 FIELD_LABELS = {
@@ -20,7 +24,9 @@ FIELD_LABELS = {
     "lost_time": "분실 시간대",
     "region": "분실 지역",
     "color": "물품 색상",
+    "size": "물품 크기",
     "brand": "브랜드 또는 제조사",
+    "quantity": "분실 수량",
     "features": "식별 가능한 특징이나 내용물",
     "circumstances": "분실 전후 상황이나 이동 경로",
 }
@@ -35,7 +41,9 @@ def build_lost_report_draft(
     lost_place: str | None = None,
     region: str | None = None,
     color: str | None = None,
+    size: str | None = None,
     brand: str | None = None,
+    quantity: int | None = None,
     features: list[str] | None = None,
     circumstances: str | None = None,
     incident_type: str = "분실",
@@ -47,6 +55,7 @@ def build_lost_report_draft(
     clean_place = _clean(lost_place)
     clean_region = _clean(region)
     clean_color = _clean(color)
+    clean_size = _clean(size)
     clean_brand = _clean(brand)
     clean_features = [
         mask_pii(value.strip()) for value in features or [] if value.strip()
@@ -60,7 +69,9 @@ def build_lost_report_draft(
         "lost_time": clean_time,
         "region": clean_region,
         "color": clean_color,
+        "size": clean_size,
         "brand": clean_brand,
+        "quantity": quantity,
         "features": clean_features,
         "circumstances": clean_circumstances,
     }
@@ -69,7 +80,9 @@ def build_lost_report_draft(
         "lost_time",
         "region",
         "color",
+        "size",
         "brand",
+        "quantity",
         "features",
         "circumstances",
     )
@@ -82,6 +95,8 @@ def build_lost_report_draft(
         "경찰민원24 온라인 분실신고는 제출 후 수정할 수 없어 취소 후 다시 신고해야 합니다.",
         "경찰민원24 안내 기준으로 분실신고에 별도 구비서류나 수수료는 없습니다.",
         "카드번호·주민등록번호·연락처 전체 값은 물품 특징란에 적지 마세요.",
+        "성명·생년월일·연락처 등 신고인 정보는 경찰민원24에서 본인이 직접 확인하세요.",
+        "경찰민원24 신고하기 연결 후 인증 상태에 따라 로그인이 필요할 수 있습니다.",
         "SMS/이메일 수신을 허용하면 신상정보가 일치하는 습득물 입고 시 안내받을 수 있습니다.",
     ]
 
@@ -106,7 +121,9 @@ def build_lost_report_draft(
         lost_place=clean_place,
         region=clean_region,
         color=clean_color,
+        size=clean_size,
         brand=clean_brand,
+        quantity=quantity,
         features=clean_features,
         circumstances=clean_circumstances,
     )
@@ -121,7 +138,9 @@ def build_lost_report_draft(
         lost_place=clean_place,
         region=clean_region,
         color=clean_color,
+        size=clean_size,
         brand=clean_brand,
+        quantity=quantity,
         features=clean_features,
         circumstances=clean_circumstances,
         missing_essential_fields=missing_essential,
@@ -131,6 +150,7 @@ def build_lost_report_draft(
         next_question=next_question,
         ready_for_user_review=ready,
         official_report_url=POLICE_REPORT_URL,
+        official_guide_url=POLICE_REPORT_GUIDE_URL,
     )
 
 
@@ -149,8 +169,10 @@ def _improvement_tips(values: dict[str, object]) -> list[str]:
         tips.append("역명·노선·차량번호·매장명·좌석처럼 다시 찾을 수 있는 장소 단서를 적어보세요.")
     elif not values["region"]:
         tips.append("분실 장소의 시·도와 시·군·구를 함께 적어 지역 검색이 가능하게 해보세요.")
-    if not values["color"] or not values["brand"]:
-        tips.append("색상과 브랜드를 함께 적으면 같은 종류의 물품을 구분하기 쉽습니다.")
+    if not values["color"] or not values["size"] or not values["brand"]:
+        tips.append("색상·크기·브랜드를 함께 적으면 같은 종류의 물품을 구분하기 쉽습니다.")
+    if not values["quantity"]:
+        tips.append("같이 잃어버린 물품이 여러 개라면 물품별 수량을 확인해보세요.")
     if not values["features"]:
         tips.append("흠집, 스티커, 재질, 내부 구성처럼 본인만 아는 특징을 추가해보세요.")
     if not values["circumstances"]:
@@ -179,16 +201,19 @@ def _build_copy_text(
     lost_place: str | None,
     region: str | None,
     color: str | None,
+    size: str | None,
     brand: str | None,
+    quantity: int | None,
     features: list[str],
     circumstances: str | None,
 ) -> str:
     lines = [
         f"분실 물품: {item_name or '[확인 필요]'}",
+        f"분실 수량: {quantity if quantity is not None else '[수량 확인 필요]'}",
         f"물품 분류: {category or item_name or '[확인 필요]'}",
         f"분실 일시: {_date_text(lost_date)} {lost_time or '[시간 확인 필요]'}",
         f"분실 장소: {' '.join(value for value in (region, lost_place) if value) or '[확인 필요]'}",
-        f"색상/브랜드: {' / '.join(value for value in (color, brand) if value) or '[확인 필요]'}",
+        f"색상/크기/브랜드: {' / '.join(value for value in (color, size, brand) if value) or '[확인 필요]'}",
         f"식별 특징: {', '.join(features) or '[특징 확인 필요]'}",
     ]
     if circumstances:
