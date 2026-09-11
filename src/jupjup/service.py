@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from .api_client import Lost112ApiClient
+from .api_client import FOUND_RECORD_SOURCES, Lost112ApiClient
 from .matcher import LostItemMatcher
 from .models import AgentResult, LostItemQuery, RecordSource
 from .vision import VisionMatcher
@@ -28,10 +28,12 @@ class JupJupAgentService:
         candidate_limit: int = 5,
         vision_limit: int = 3,
     ) -> AgentResult:
-        responses, errors = self.api_client.search_all(query)
+        responses, errors = self.api_client.search_all(
+            query,
+            sources=FOUND_RECORD_SOURCES,
+        )
         records = [record for response in responses for record in response.records]
         found_records = [record for record in records if record.record_type == "found"]
-        lost_records = [record for record in records if record.record_type == "lost"]
 
         vision_scores: dict[str, float] = {}
         if self.vision_matcher:
@@ -61,18 +63,55 @@ class JupJupAgentService:
             if not response.search_scopes
             or any(scope.pages_completed > 0 for scope in response.search_scopes)
         }
-        # 동일 물품명으로 접수된 다른 분실 신고는 후보와 분리해서 참고 정보로 제공한다.
-        similar_lost_reports = sorted(
-            lost_records,
-            key=lambda record: record.event_date or date.min,
-            reverse=True,
-        )[:candidate_limit]
-
         return AgentResult(
             query=query,
             candidates=candidates,
+            similar_lost_reports=[],
+            source_counts=source_counts,
+            errors=errors,
+            search_scopes=[
+                scope for response in responses for scope in response.search_scopes
+            ],
+        )
+
+    def find_similar_lost_reports(
+        self,
+        query: LostItemQuery,
+        *,
+        report_limit: int = 5,
+    ) -> AgentResult:
+        """사용자가 요청했을 때만 경찰청의 다른 분실 신고를 조회한다."""
+        responses, errors = self.api_client.search_all(
+            query,
+            sources={RecordSource.POLICE_LOST},
+        )
+        lost_records = [
+            record
+            for response in responses
+            for record in response.records
+            if record.record_type == "lost"
+        ]
+        similar_lost_reports = sorted(
+            lost_records,
+            key=lambda record: (
+                self.matcher.score(query, record).score,
+                record.event_date or date.min,
+            ),
+            reverse=True,
+        )[:report_limit]
+        source_counts = {
+            response.source.label: response.total_count
+            for response in responses
+            if not response.search_scopes
+            or any(scope.pages_completed > 0 for scope in response.search_scopes)
+        }
+        return AgentResult(
+            query=query,
+            candidates=[],
             similar_lost_reports=similar_lost_reports,
             source_counts=source_counts,
             errors=errors,
-            search_scopes=[scope for response in responses for scope in response.search_scopes],
+            search_scopes=[
+                scope for response in responses for scope in response.search_scopes
+            ],
         )

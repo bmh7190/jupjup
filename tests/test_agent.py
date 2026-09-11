@@ -18,22 +18,26 @@ from pydantic import PrivateAttr
 from jupjup.agent import (
     JupJupChatAgent,
     _search_result_message,
+    _similar_lost_reports_message,
     build_middlewares,
     create_lost112_search_tool,
     create_lost_report_tool,
+    create_similar_lost_reports_tool,
     has_search_item_context,
     is_explicit_report_request,
     is_explicit_search_request,
+    is_explicit_similar_lost_report_request,
     is_report_workflow_turn,
 )
 from jupjup.conversation import report_context_from_messages
-from jupjup.models import AgentResult, LostItemQuery
+from jupjup.models import AgentResult, LostItemQuery, RecordSource, SearchRecord
 from jupjup.report import build_lost_report_draft
 
 
 class StubService:
     def __init__(self) -> None:
         self.received: LostItemQuery | None = None
+        self.similar_received: LostItemQuery | None = None
 
     def run(self, query: LostItemQuery, *, candidate_limit: int = 5) -> AgentResult:
         self.received = query
@@ -42,6 +46,28 @@ class StubService:
             candidates=[],
             similar_lost_reports=[],
             source_counts={"경찰청 습득물": 0},
+        )
+
+    def find_similar_lost_reports(
+        self,
+        query: LostItemQuery,
+        *,
+        report_limit: int = 5,
+    ) -> AgentResult:
+        self.similar_received = query
+        record = SearchRecord(
+            source=RecordSource.POLICE_LOST,
+            record_type="lost",
+            atc_id="L1",
+            item_name="검은 카드지갑",
+            event_date=date(2026, 9, 9),
+            event_place="강남역",
+        )
+        return AgentResult(
+            query=query,
+            candidates=[],
+            similar_lost_reports=[record][:report_limit],
+            source_counts={"경찰청 분실물": 1},
         )
 
 
@@ -162,6 +188,17 @@ class ToolChoiceAwareModel(BaseChatModel):
                         "name": "prepare_lost_report_draft",
                         "args": {},
                         "id": "forced-report-call-1",
+                    }
+                ],
+            )
+        elif self._tool_choice == "search_similar_lost_reports":
+            message = AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "search_similar_lost_reports",
+                        "args": {},
+                        "id": "forced-similar-reports-call-1",
                     }
                 ],
             )
@@ -498,6 +535,20 @@ class AgentConfigurationTest(unittest.TestCase):
         self.assertFalse(is_explicit_search_request("뭔가 잃어버렸어요"))
         self.assertFalse(is_explicit_search_request("분실신고서를 작성해줘"))
 
+    def test_similar_lost_report_request_is_a_separate_intent(self) -> None:
+        text = "다른 사람이 등록한 유사한 분실 신고도 확인해줘"
+
+        self.assertTrue(is_explicit_similar_lost_report_request(text))
+        self.assertFalse(is_explicit_search_request(text))
+        self.assertFalse(
+            is_explicit_similar_lost_report_request("분실신고서를 작성해줘")
+        )
+
+    def test_similar_report_request_without_item_has_no_search_context(self) -> None:
+        messages = [HumanMessage(content="유사 분실 신고 조회해줘")]
+
+        self.assertFalse(has_search_item_context(messages))
+
     def test_search_item_context_uses_sentence_structure_and_thread_history(self) -> None:
         self.assertFalse(
             has_search_item_context([HumanMessage(content="기능 검증용 대화야. 찾아줘")])
@@ -622,6 +673,38 @@ class AgentConfigurationTest(unittest.TestCase):
         self.assertIsNotNone(service.received)
         self.assertIn("search_lost112_candidates", model._tool_choices)
 
+    def test_similar_report_follow_up_reuses_search_context_without_candidates(self) -> None:
+        service = StubService()
+        model = ToolChoiceAwareModel()
+        agent = JupJupChatAgent(service, model=model)  # type: ignore[arg-type]
+
+        agent.chat(
+            "강남역에서 카드지갑을 잃어버렸어",
+            thread_id="split-search-intent",
+        )
+        response = agent.chat(
+            "다른 사람이 등록한 유사한 분실 신고도 확인해줘",
+            thread_id="split-search-intent",
+        )
+
+        self.assertIsNotNone(service.similar_received)
+        self.assertEqual(service.similar_received.item_name, "카드지갑")  # type: ignore[union-attr]
+        self.assertIsNone(response.search_result)
+        self.assertIsNone(response.report_draft)
+        self.assertIn("유사한 기존 분실 신고 1건", response.message)
+        self.assertIn("검은 카드지갑", response.message)
+        self.assertIn("search_similar_lost_reports", model._tool_choices)
+
+    def test_similar_report_request_without_item_does_not_call_api(self) -> None:
+        service = StubService()
+        model = ToolChoiceAwareModel()
+        agent = JupJupChatAgent(service, model=model)  # type: ignore[arg-type]
+
+        agent.chat("유사 분실 신고 조회해줘", thread_id="missing-similar-item")
+
+        self.assertIsNone(service.similar_received)
+        self.assertNotIn("search_similar_lost_reports", model._tool_choices)
+
     def test_report_tool_builds_reviewable_draft_without_submitting(self) -> None:
         report_tool = create_lost_report_tool()
 
@@ -660,6 +743,35 @@ class AgentConfigurationTest(unittest.TestCase):
         self.assertEqual(service.received.item_name, "카드지갑")
         self.assertEqual(service.received.lost_date, date(2026, 9, 10))
         self.assertIn("source_counts", content)
+
+    def test_similar_reports_tool_calls_only_similar_report_service(self) -> None:
+        service = StubService()
+        similar_tool = create_similar_lost_reports_tool(service)  # type: ignore[arg-type]
+
+        content = similar_tool.invoke(
+            {
+                "item_name": "카드지갑",
+                "lost_date": "2026-09-09",
+                "lost_place": "강남역",
+            }
+        )
+
+        self.assertEqual(similar_tool.name, "search_similar_lost_reports")
+        self.assertIsNotNone(service.similar_received)
+        self.assertIn("similar_lost_reports", content)
+
+    def test_similar_report_summary_handles_empty_result(self) -> None:
+        result = AgentResult(
+            query=LostItemQuery(item_name="지갑", search_ready=True),
+            candidates=[],
+            similar_lost_reports=[],
+            source_counts={"경찰청 분실물": 0},
+        )
+
+        self.assertEqual(
+            _similar_lost_reports_message(result),
+            "같은 조건으로 등록된 유사한 기존 분실 신고를 찾지 못했습니다.",
+        )
 
     def test_search_summary_is_generated_from_structured_result(self) -> None:
         result = AgentResult(

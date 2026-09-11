@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "jupjup"
 version = "0.1.0"
-description = "경찰청 유실물 API 3종을 조회하고 습득물 후보를 추천하는 JupJup LangChain Agent"
+description = "요청별로 경찰청 유실물 API를 선택 호출하는 JupJup LangChain Agent"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
