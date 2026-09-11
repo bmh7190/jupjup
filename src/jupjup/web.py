@@ -68,6 +68,21 @@ class ChatReply(BaseModel):
     response: JupJupChatResponse
 
 
+def _response_for_web_chat(response: JupJupChatResponse) -> JupJupChatResponse:
+    """웹 채팅에는 사용자 판단에 필요한 검색 결과만 노출한다.
+
+    검색 범위와 유사 분실 신고는 내부 검색·진단에는 유지하되, 습득물 후보와
+    혼동되지 않도록 브라우저 응답에서 숨긴다.
+    """
+    if response.search_result is None:
+        return response
+
+    search_result = response.search_result.model_copy(
+        update={"search_scopes": [], "similar_lost_reports": []}
+    )
+    return response.model_copy(update={"search_result": search_result})
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> Response:
     html_path = Path(__file__).parent / "web_assets" / "index.html"
@@ -108,7 +123,7 @@ def chat(payload: ChatRequest) -> ChatReply:
         return ChatReply(thread_id=thread_id, response=JupJupChatResponse(message=message))
 
     try:
-        response = agent.chat(text, thread_id=thread_id)
+        response = _response_for_web_chat(agent.chat(text, thread_id=thread_id))
     except Exception as exc:  # noqa: BLE001 - 서버가 죽지 않고 오류를 화면에 보여준다.
         # 외부 SDK 예외에는 요청 헤더가 포함될 수 있으므로 스택과 원문을
         # 배포 로그나 사용자 응답에 남기지 않는다.
