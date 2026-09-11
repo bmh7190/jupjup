@@ -222,6 +222,10 @@ curl http://127.0.0.1:8000/api/status
 
 정상이면 `{"ready":true,"error":null}`이 반환됩니다. 포트가 이미 사용 중이면 기존 서버를 종료하거나 다른 포트로 `uvicorn`을 실행합니다.
 
+### GitHub PR의 Vercel 배포가 실패함
+
+로컬 FastAPI 실행과 Vercel 배포는 별개입니다. 현재 저장소에는 Vercel 전용 설정 파일이나 서버리스 진입점이 없으므로 연결된 Vercel 프로젝트의 자동 배포가 실패할 수 있습니다. 정확한 원인은 Vercel 프로젝트 소유자가 배포 로그에서 확인해야 합니다. Vercel에 배포하려면 Python 진입점과 빌드 설정을 별도로 구성하고 `DATA_GO_KR_SERVICE_KEY`, `OPENAI_API_KEY` 같은 비밀값은 저장소 파일이 아니라 Vercel 환경변수로 등록합니다.
+
 ## 테스트
 
 ```bash
