@@ -14,17 +14,6 @@ def xml(items, total=None):
 
 
 class DateSearchTest(unittest.TestCase):
-    def test_lost_reports_still_receive_details_in_dated_search(self):
-        client=Lost112ApiClient('test',detail_limit=1)
-        list_root=ET.fromstring('<response><header><resultCode>00</resultCode></header><body><totalCount>1</totalCount><items><item><atcId>L1</atcId><lstPrdtNm>지갑</lstPrdtNm><lstYmd>2026-03-15</lstYmd></item></items></body></response>')
-        detail_root=ET.fromstring('<response><header><resultCode>00</resultCode></header><body><item><atcId>L1</atcId><lstPrdtNm>지갑</lstPrdtNm><lstYmd>2026-03-15</lstYmd><lstPlace>강남역</lstPlace></item></body></response>')
-        def request(url,params):
-            return detail_root if url.endswith('getLostGoodsDetailInfo') else list_root
-        import time
-        with patch.object(client,'_request_xml',side_effect=request):
-            result=client._search_window(API_DEFINITIONS[0],LostItemQuery(item_name='지갑'),date(2026,3,14),date(2026,3,20),time.monotonic()+30)
-        self.assertEqual(result.records[0].event_place,'강남역')
-
     def test_today_clips_second_window_and_omits_future_third_window(self):
         self.assertEqual(build_search_windows(date(2026,3,14),date(2026,3,23)),
                          [(date(2026,3,14),date(2026,3,20)), (date(2026,3,21),date(2026,3,23))])
@@ -49,14 +38,51 @@ class DateSearchTest(unittest.TestCase):
         found_calls = [(url, params) for url, params in calls if 'LosfundInfo' in url]
         self.assertTrue(all('START_YMD' not in params for _, params in found_calls))
 
-    def test_page_limit_marks_partial_and_deduplicates(self):
+    def test_page_limit_is_reported_as_partial_notice_not_failure(self):
         client=Lost112ApiClient('test',page_size=1,detail_limit=0,max_pages_per_window=2)
         with patch('jupjup.api_client.API_DEFINITIONS',(API_DEFINITIONS[1],)), patch.object(client,'_request_xml',return_value=xml([('wallet','지갑','2026-03-15')],100)):
             responses, errors=client.search_all(LostItemQuery(item_name='지갑',lost_date=date(2026,3,14)))
         self.assertEqual(len(responses[0].records),1)
         self.assertFalse(responses[0].search_scopes[0].complete)
         self.assertEqual(responses[0].search_scopes[0].pages_completed,2)
-        self.assertTrue(errors)
+        self.assertEqual(
+            responses[0].search_scopes[0].partial_reason,
+            '설정된 페이지 상한에 도달',
+        )
+        self.assertFalse(errors)
+
+    def test_dated_search_fetches_details_once_after_collecting_windows(self):
+        client=Lost112ApiClient('test',page_size=1,detail_limit=1)
+        list_calls=[]
+        detail_calls=[]
+
+        def request(url, params):
+            if url.endswith('getLostGoodsDetailInfo'):
+                detail_calls.append(dict(params))
+                return ET.fromstring(
+                    '<response><header><resultCode>00</resultCode></header>'
+                    '<body><item><atcId>L1</atcId><lstPrdtNm>지갑</lstPrdtNm>'
+                    '<lstYmd>2026-03-15</lstYmd><lstPlace>강남역</lstPlace>'
+                    '</item></body></response>'
+                )
+            list_calls.append(dict(params))
+            day=params['START_YMD']
+            formatted=f'{day[:4]}-{day[4:6]}-{day[6:]}'
+            return ET.fromstring(
+                '<response><header><resultCode>00</resultCode></header>'
+                '<body><totalCount>1</totalCount><items><item>'
+                f'<atcId>L{len(list_calls)}</atcId><lstPrdtNm>지갑</lstPrdtNm>'
+                f'<lstYmd>{formatted}</lstYmd>'
+                '</item></items></body></response>'
+            )
+
+        with patch('jupjup.api_client.API_DEFINITIONS',(API_DEFINITIONS[0],)), patch.object(client,'_request_xml',side_effect=request):
+            responses, errors=client.search_all(LostItemQuery(item_name='지갑',lost_date=date(2026,3,14)))
+
+        self.assertEqual(len(list_calls),3)
+        self.assertEqual(len(detail_calls),1)
+        self.assertFalse(errors)
+        self.assertEqual(responses[0].records[0].event_place,'강남역')
 
     def test_expired_budget_does_not_start_request(self):
         client=Lost112ApiClient('test',detail_limit=0)
@@ -92,7 +118,11 @@ class DateSearchTest(unittest.TestCase):
             responses, errors = client.search_all(LostItemQuery(item_name='지갑', lost_date=date(2026,3,14)))
         self.assertEqual([r.atc_id for response in responses for r in response.records], ['wallet'])
         self.assertEqual([p['pageNo'] for p in calls[:3]], ['1','2','3'])
-        self.assertTrue(errors)  # API returned a date outside the requested range.
+        self.assertFalse(errors)
+        self.assertEqual(
+            responses[0].search_scopes[0].partial_reason,
+            '요청 기간 밖 또는 날짜 미상 자료 제외',
+        )
 
     def test_five_candidates_stop_expansion_and_preserve_scope(self):
         client = Lost112ApiClient('test', detail_limit=0)

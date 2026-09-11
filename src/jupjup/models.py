@@ -122,6 +122,7 @@ class SearchScope(BaseModel):
     retrieved_count: int = 0
     total_count: int = 0
     complete: bool = False
+    partial_reason: str | None = None
     error: str | None = None
 
 

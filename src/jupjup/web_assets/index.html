@@ -365,7 +365,7 @@ function renderResult(searchResult) {
   const errors = searchResult.errors || {};
   const countParts = Object.entries(counts).map(([src, n]) => `${src} ${n}건`);
   const statusLine = el('div', 'status-line');
-  statusLine.textContent = countParts.length ? '조회 결과: ' + countParts.join(' · ') : '';
+  statusLine.textContent = countParts.length ? 'API 전체 건수: ' + countParts.join(' · ') : '';
   Object.entries(errors).forEach(([src, msg]) => {
     const span = el('span', 'err', `${src} 조회 실패(${msg})`);
     statusLine.appendChild(span);

@@ -214,7 +214,59 @@ class Lost112ApiClient:
                 break
             if time.monotonic() >= deadline:
                 break
+        for definition in API_DEFINITIONS:
+            self._enrich_dated_details(
+                definition, combined[definition.source], query, deadline
+            )
         return list(combined.values()), errors
+
+    def _enrich_dated_details(
+        self,
+        definition: ApiDefinition,
+        result: ApiSearchResponse,
+        query: LostItemQuery,
+        deadline: float,
+    ) -> None:
+        """기간 목록을 모두 모은 뒤 출처별 상위 후보만 상세 조회한다."""
+        if definition.record_type == "lost":
+            detail_records = result.records[:self.detail_limit]
+        else:
+            from .matcher import LostItemMatcher
+
+            ranked = LostItemMatcher().rank(
+                query, result.records, limit=self.detail_limit
+            )
+            detail_records = [candidate.record for candidate in ranked]
+
+        detail_keys = {(record.atc_id, record.sequence) for record in detail_records}
+        token = REQUEST_DEADLINE.set(deadline)
+        try:
+            for index, record in enumerate(result.records):
+                if (record.atc_id, record.sequence) not in detail_keys:
+                    continue
+                if time.monotonic() >= deadline:
+                    self._mark_detail_enrichment_skipped(result)
+                    break
+                try:
+                    result.records[index] = self._fetch_and_merge_detail(
+                        definition, record
+                    )
+                except TimeoutError:
+                    self._mark_detail_enrichment_skipped(result)
+                    break
+        finally:
+            REQUEST_DEADLINE.reset(token)
+
+    @staticmethod
+    def _mark_detail_enrichment_skipped(result: ApiSearchResponse) -> None:
+        if not result.search_scopes:
+            return
+        scope = result.search_scopes[-1]
+        reason = "전체 시간 예산 소진으로 상세 조회 일부 생략"
+        if scope.partial_reason:
+            scope.partial_reason = f"{scope.partial_reason}; {reason}"
+        else:
+            scope.partial_reason = reason
 
     def _search_window(self, definition: ApiDefinition, query: LostItemQuery,
                        start: date, end: date, deadline: float) -> ApiSearchResponse:
@@ -251,7 +303,7 @@ class Lost112ApiClient:
                 scope.retrieved_count += len(records)
                 for record in records:
                     if record.event_date is None or not start <= record.event_date <= end:
-                        scope.error = "요청 기간 밖 또는 날짜 미상 자료 제외"
+                        scope.partial_reason = "요청 기간 밖 또는 날짜 미상 자료 제외"
                         continue
                     # 기간 API는 PRDT_NM을 무시하므로 명칭/분류는 로컬에서 검사한다.
                     needle = (query.item_name or "").replace(" ", "").casefold()
@@ -267,22 +319,7 @@ class Lost112ApiClient:
                     scope.error = "전체 건수에 도달하기 전에 빈 페이지 반환"
                     break
             else:
-                scope.error = "페이지 제한으로 일부만 조회"
-            # 기간/물품 필터를 통과한 후보 중 점수가 높은 항목부터 상세를 보완한다.
-            from .matcher import LostItemMatcher
-            if definition.record_type == "lost":
-                detail_records = result.records[:self.detail_limit]
-            else:
-                ranked = LostItemMatcher().rank(query, result.records, limit=self.detail_limit)
-                detail_records = [candidate.record for candidate in ranked]
-            detail_keys = {(record.atc_id, record.sequence) for record in detail_records}
-            for index, record in enumerate(result.records):
-                if (record.atc_id, record.sequence) in detail_keys:
-                    if time.monotonic() >= deadline:
-                        raise TimeoutError("상세 조회 시간 제한")
-                    detail = self._fetch_and_merge_detail(definition, record)
-                    if detail.event_date is not None and start <= detail.event_date <= end:
-                        result.records[index] = detail
+                scope.partial_reason = "설정된 페이지 상한에 도달"
         except Exception as exc:
             # 키를 포함할 수 있는 원본 예외/URL을 결과에 저장하지 않는다.
             scope.complete = False
