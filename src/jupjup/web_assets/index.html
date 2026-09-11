@@ -397,13 +397,6 @@ function renderResult(searchResult) {
 function renderCard(candidate) {
   const record = candidate.record || {};
   const card = el('div', 'card');
-  const confidenceLabels = { high: '높음', medium: '보통', low: '낮음' };
-  const scopeLabels = {
-    direct: '직접 장소', district: '같은 시군구', nearby: '인접 시군구',
-    region: '같은 시도', adjacent: '인접 시도', nationwide: '전국',
-    unrestricted: '위치 제한 없음'
-  };
-
   const thumb = el('div', 'thumb');
   if (record.image_url) {
     const placeholder = el('span', null, '이미지를 불러올 수 없음');
@@ -424,11 +417,6 @@ function renderCard(candidate) {
   card.appendChild(titleRow);
 
   if (record.source) card.appendChild(el('span', 'source-badge', record.source));
-  if (candidate.confidence || candidate.location_scope) {
-    const confidence = confidenceLabels[candidate.confidence] || candidate.confidence || '-';
-    const scope = scopeLabels[candidate.location_scope] || candidate.location_scope || '-';
-    card.appendChild(el('div', 'meta', `신뢰도 ${confidence} · 검색 범위 ${scope}`));
-  }
   card.appendChild(el('div', 'meta', `${record.event_date || '-'} · ${record.event_place || '-'}`));
   if (record.custody_place) card.appendChild(el('div', 'meta', '보관: ' + record.custody_place));
 
