@@ -443,8 +443,12 @@ class AgentConfigurationTest(unittest.TestCase):
 
     def test_search_request_requires_an_explicit_item_or_action(self) -> None:
         self.assertTrue(is_explicit_search_request("강남역에서 카드지갑을 잃어버렸어"))
+        self.assertTrue(is_explicit_search_request("어제 분당구에서 핸드폰 잃어버렸어"))
+        self.assertTrue(is_explicit_search_request("카페에 가방 두고 왔어"))
         self.assertTrue(is_explicit_search_request("검은 우산 조회해줘"))
         self.assertFalse(is_explicit_search_request("강남역에서 잃어버렸어요"))
+        self.assertFalse(is_explicit_search_request("어제 저녁에 잃어버렸어요"))
+        self.assertFalse(is_explicit_search_request("뭔가 잃어버렸어요"))
         self.assertFalse(is_explicit_search_request("분실신고서를 작성해줘"))
 
     def test_search_item_context_uses_sentence_structure_and_thread_history(self) -> None:
@@ -559,7 +563,7 @@ class AgentConfigurationTest(unittest.TestCase):
         agent = JupJupChatAgent(service, model=model)  # type: ignore[arg-type]
 
         response = agent.chat(
-            "강남역에서 카드지갑을 잃어버렸어",
+            "어제 분당구에서 핸드폰 잃어버렸어",
             thread_id="forced-search-test",
         )
 

@@ -137,7 +137,7 @@ class DateSearchTest(unittest.TestCase):
         self.assertEqual(len(result.candidates),5)
         self.assertTrue(getattr(result,'search_scopes',[]))
 
-    def test_second_page_failure_keeps_first_page_records(self):
+    def test_timeout_with_records_is_reported_as_partial_notice(self):
         client=Lost112ApiClient('test',page_size=1,detail_limit=0)
         def request(url, params):
             if params.get('START_YMD') != '20260314': return xml([])
@@ -146,7 +146,11 @@ class DateSearchTest(unittest.TestCase):
         with patch('jupjup.api_client.API_DEFINITIONS', (API_DEFINITIONS[1],)), patch.object(client,'_request_xml',side_effect=request):
             responses, errors=client.search_all(LostItemQuery(item_name='지갑',lost_date=date(2026,3,14)))
         self.assertEqual([r.atc_id for response in responses for r in response.records],['wallet'])
-        self.assertTrue(errors)
+        self.assertFalse(errors)
+        self.assertIn(
+            '전체 조회 시간 제한',
+            responses[0].search_scopes[0].partial_reason,
+        )
         with patch('jupjup.api_client.API_DEFINITIONS', (API_DEFINITIONS[1],)), patch.object(
             client, '_request_xml', side_effect=request
         ):
@@ -185,6 +189,14 @@ class DateSearchTest(unittest.TestCase):
             self.assertIn('경찰청 습득물', failed.errors)
             self.assertTrue(failed.search_scopes)
             self.assertTrue(all(scope.pages_completed == 0 for scope in failed.search_scopes))
+
+    def test_timeout_without_any_records_remains_an_error(self):
+        client=Lost112ApiClient('test',detail_limit=0)
+        with patch('jupjup.api_client.API_DEFINITIONS', (API_DEFINITIONS[1],)), patch.object(client,'_request_xml',side_effect=TimeoutError('test timeout')):
+            responses, errors=client.search_all(LostItemQuery(item_name='지갑',lost_date=date(2026,3,14)))
+        self.assertFalse(responses[0].records)
+        self.assertIn('경찰청 습득물', errors)
+        self.assertIn('TimeoutError', errors['경찰청 습득물'])
 
     def test_future_date_does_not_search_latest(self):
         client=Lost112ApiClient('test',detail_limit=0)

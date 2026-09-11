@@ -191,7 +191,6 @@ class Lost112ApiClient:
         windows = build_search_windows(query.lost_date)
         deadline = time.monotonic() + self.search_budget_seconds
         combined = {d.source: ApiSearchResponse(source=d.source, total_count=0, records=[]) for d in API_DEFINITIONS}
-        errors: dict[str, str] = {}
         seen: set[tuple[RecordSource, str, str | None]] = set()
         for start, end in windows:
             with ThreadPoolExecutor(max_workers=len(API_DEFINITIONS)) as executor:
@@ -201,10 +200,6 @@ class Lost112ApiClient:
                     target = combined[result.source]
                     target.total_count += result.total_count
                     target.search_scopes.extend(result.search_scopes)
-                    for scope in result.search_scopes:
-                        if scope.error:
-                            previous = errors.get(result.source.label, "")
-                            errors[result.source.label] = (previous + f" {start}~{end}: {scope.error}").strip()
                     for record in result.records:
                         key = (record.source, record.atc_id, record.sequence)
                         if key not in seen:
@@ -218,7 +213,32 @@ class Lost112ApiClient:
             self._enrich_dated_details(
                 definition, combined[definition.source], query, deadline
             )
-        return list(combined.values()), errors
+        responses = list(combined.values())
+
+        # 한 출처라도 자료를 확보했다면 전체 시간 제한은 실패가 아니라 부분
+        # 성공이다. 실제 API 오류는 그대로 남겨 사용자에게 구분해 보여준다.
+        if any(response.records for response in responses):
+            timeout_reason = "전체 조회 시간 제한으로 목록 일부만 확인"
+            for response in responses:
+                for scope in response.search_scopes:
+                    if scope.error and "TimeoutError" in scope.error:
+                        if scope.partial_reason:
+                            scope.partial_reason = (
+                                f"{scope.partial_reason}; {timeout_reason}"
+                            )
+                        else:
+                            scope.partial_reason = timeout_reason
+                        scope.error = None
+
+        errors: dict[str, str] = {}
+        for response in responses:
+            for scope in response.search_scopes:
+                if not scope.error:
+                    continue
+                previous = errors.get(response.source.label, "")
+                message = f"{scope.start_date}~{scope.end_date}: {scope.error}"
+                errors[response.source.label] = f"{previous} {message}".strip()
+        return responses, errors
 
     def _enrich_dated_details(
         self,

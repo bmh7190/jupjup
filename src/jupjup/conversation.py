@@ -29,6 +29,30 @@ _SEARCH_REQUEST_PATTERNS = (
     re.compile(r"(?:찾아|조회|검색)\s*(?:줘|해\s*줘|부탁)"),
     re.compile(r"(?:이야|예요|입니다).{0,40}(?:잃어버|분실(?:했|한|함))"),
 )
+_LOSS_ACTION_PATTERN = re.compile(r"(?:잃어버|분실(?:했|한|함)|두고|놓고)")
+_NON_ITEM_TOKENS = {
+    "어제",
+    "오늘",
+    "그제",
+    "방금",
+    "아까",
+    "아침",
+    "점심",
+    "저녁",
+    "새벽",
+    "오전",
+    "오후",
+    "밤",
+    "낮",
+    "뭔가",
+    "무언가",
+    "물건",
+    "분실물",
+    "습득물",
+    "이거",
+    "그거",
+}
+_NON_ITEM_SUFFIXES = ("에서", "에게", "부터", "까지", "중에", "동안", "에")
 _SEARCH_COMMAND_PATTERN = re.compile(
     r"(?:찾아|조회|검색)\s*(?:줘|해\s*줘|부탁)"
 )
@@ -132,7 +156,9 @@ def is_explicit_search_request(text: str) -> bool:
     if is_explicit_report_request(text):
         return False
     normalized = re.sub(r"\s+", " ", text.strip())
-    return any(pattern.search(normalized) for pattern in _SEARCH_REQUEST_PATTERNS)
+    if any(pattern.search(normalized) for pattern in _SEARCH_REQUEST_PATTERNS):
+        return True
+    return _item_name_before_loss_action(normalized) is not None
 
 
 def _human_texts(messages: list[Any]) -> list[str]:
@@ -208,9 +234,27 @@ def is_report_workflow_turn(messages: list[Any]) -> bool:
     return _is_report_follow_up(current_text, messages[:-1])
 
 
+def _item_name_before_loss_action(text: str) -> str | None:
+    """조사 없이 분실 동사 앞에 놓인 물품명 단서를 찾는다."""
+    for action in _LOSS_ACTION_PATTERN.finditer(text):
+        tokens = re.findall(r"[A-Za-z0-9가-힣]+", text[: action.start()])
+        if not tokens:
+            continue
+        token = tokens[-1]
+        if token.endswith(_NON_ITEM_SUFFIXES):
+            continue
+        candidate = re.sub(r"(?:을|를)$", "", token)
+        if candidate and candidate not in _NON_ITEM_TOKENS:
+            return candidate
+    return None
+
+
 def _item_name_from_text(text: str) -> str | None:
     """검색 강제 여부에만 쓰는 보수적인 물품명 단서를 찾는다."""
     normalized = re.sub(r"\s+", " ", text.strip())
+    item_name = _item_name_before_loss_action(normalized)
+    if item_name:
+        return item_name
     patterns = (
         re.compile(
             r"([가-힣A-Za-z0-9][가-힣A-Za-z0-9 ]{0,30}?)(?:을|를)\s*"
