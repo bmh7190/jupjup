@@ -345,7 +345,10 @@ class AgentConfigurationTest(unittest.TestCase):
         self.assertEqual(response.report_draft.item_name, "카드지갑")
         self.assertEqual(response.report_draft.size, "가로 11cm")
         self.assertEqual(response.report_draft.quantity, 1)
-        self.assertIn("cvlcptAply.do", response.report_draft.official_report_url)
+        self.assertEqual(
+            response.report_draft.official_report_url,
+            "https://minwon24.police.go.kr/main.do",
+        )
         self.assertFalse(response.report_draft.auto_submitted)
 
         following_response = agent.chat("고마워", thread_id="report-test")

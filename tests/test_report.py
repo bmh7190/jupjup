@@ -35,7 +35,11 @@ class LostReportDraftTest(unittest.TestCase):
         self.assertIn("가로 11cm", draft.copy_text)
         self.assertEqual(draft.official_report_url, POLICE_REPORT_URL)
         self.assertEqual(draft.official_guide_url, POLICE_REPORT_GUIDE_URL)
-        self.assertIn("cvlcptAply.do", draft.official_report_url)
+        self.assertEqual(
+            draft.official_report_url,
+            "https://minwon24.police.go.kr/main.do",
+        )
+        self.assertTrue(any("유실물 민원" in notice for notice in draft.notices))
         self.assertFalse(draft.auto_submitted)
 
     def test_missing_information_returns_question_and_improvement_tips(self) -> None:

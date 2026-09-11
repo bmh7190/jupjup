@@ -12,10 +12,7 @@ POLICE_REPORT_GUIDE_URL = (
     "https://minwon24.police.go.kr/cvlcpt/"
     "cvlcptGdInfo.do?cvlcptId=MW-001"
 )
-POLICE_REPORT_URL = (
-    "https://minwon24.police.go.kr/cvlcpt/"
-    "cvlcptAply.do?cvlcptId=MW-001"
-)
+POLICE_REPORT_URL = "https://minwon24.police.go.kr/main.do"
 
 FIELD_LABELS = {
     "item_name": "분실 물품명",
@@ -96,7 +93,7 @@ def build_lost_report_draft(
         "경찰민원24 안내 기준으로 분실신고에 별도 구비서류나 수수료는 없습니다.",
         "카드번호·주민등록번호·연락처 전체 값은 물품 특징란에 적지 마세요.",
         "성명·생년월일·연락처 등 신고인 정보는 경찰민원24에서 본인이 직접 확인하세요.",
-        "경찰민원24 신고하기 연결 후 인증 상태에 따라 로그인이 필요할 수 있습니다.",
+        "경찰민원24 메인에서 '유실물 민원 > 분실물 신고'를 선택하고 로그인해 작성하세요.",
         "SMS/이메일 수신을 허용하면 신상정보가 일치하는 습득물 입고 시 안내받을 수 있습니다.",
     ]
 
