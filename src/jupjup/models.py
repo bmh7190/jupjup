@@ -119,6 +119,34 @@ class AgentResult(BaseModel):
     search_scopes: list[SearchScope] = Field(default_factory=list)
 
 
+class LostReportDraft(BaseModel):
+    """경찰민원24에 옮겨 적기 전에 사용자가 검토하는 분실신고 초안."""
+
+    title: str
+    copy_text: str
+    item_name: str | None = None
+    category: str | None = None
+    lost_date: date | None = None
+    lost_time: str | None = None
+    lost_place: str | None = None
+    region: str | None = None
+    color: str | None = None
+    size: str | None = None
+    brand: str | None = None
+    quantity: int | None = Field(default=None, ge=1)
+    features: list[str] = Field(default_factory=list)
+    circumstances: str | None = None
+    missing_essential_fields: list[str] = Field(default_factory=list)
+    missing_recommended_fields: list[str] = Field(default_factory=list)
+    improvement_tips: list[str] = Field(default_factory=list)
+    notices: list[str] = Field(default_factory=list)
+    next_question: str | None = None
+    ready_for_user_review: bool = False
+    official_report_url: str
+    official_guide_url: str
+    auto_submitted: bool = False
+
+
 class VisionAssessment(BaseModel):
     similarity: float = Field(ge=0.0, le=1.0, description="설명과 사진의 일치도")
     reason: str = Field(description="판정 근거 한 문장")

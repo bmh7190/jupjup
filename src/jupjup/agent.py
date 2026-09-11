@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import date
 from typing import Any
 
@@ -12,15 +13,18 @@ from langchain.agents.middleware import (
     PIIMiddleware,
     ToolCallLimitMiddleware,
     ToolRetryMiddleware,
+    wrap_model_call,
+    wrap_tool_call,
 )
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import BaseTool, tool
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import BaseModel
 
-from .models import AgentResult, LostItemQuery
+from .models import AgentResult, LostItemQuery, LostReportDraft
+from .report import build_lost_report_draft
 from .service import JupJupAgentService
 
 
@@ -28,10 +32,19 @@ SYSTEM_PROMPT = """당신은 분실물 찾기를 돕는 '줍줍이'입니다.
 사용자와 한국어로 짧고 명확하게 대화하세요.
 
 다음 원칙을 지키세요.
-- 사용자의 설명에서 물품명, 분실일, 장소, 지역, 색상, 브랜드, 특징을 파악하세요.
+- 먼저 사용자의 의도를 습득물 조회와 분실신고 작성 도움으로 구분하세요.
+- 사용자의 설명에서 물품명, 분실일, 장소, 지역, 색상, 크기, 브랜드, 수량, 특징을 파악하세요.
 - item_name에는 '지갑'처럼 짧은 일반 물품명을 넣고 '샤넬' 같은 브랜드와 색상은 별도 인자로 전달하세요.
-- 물품명을 알 수 없으면 검색하지 말고 먼저 물어보세요.
-- 물품명을 알 수 있으면 search_lost112_candidates Tool로 실제 데이터를 조회하세요.
+- 현재 메시지에서 사용자가 분실신고 작성, 문장 정리, 누락 확인을 명시적으로 요청한 경우에만 prepare_lost_report_draft Tool을 호출하세요.
+- 단순히 물건을 잃어버렸다고 설명하거나 습득물 조회를 요청한 경우에는 신고서 Tool을 호출하지 마세요.
+- 신고서 작성만 요청한 경우에는 search_lost112_candidates Tool을 호출하지 마세요.
+- 신고서 작성 요청에서는 물품명, 분실 날짜, 구체적인 장소가 없으면 초안의 next_question으로 먼저 보완하세요.
+- prepare_lost_report_draft 결과가 준비되면 복사용 문장, 누락 항목, 개선 제안, 주의사항을 안내하세요.
+- 신고서 결과의 official_report_url과 official_guide_url을 답변에서 생략하지 마세요.
+- 이 서비스는 신고를 자동 제출하지 않습니다. 제출됐다고 말하지 말고 경찰민원24 공식 링크를 안내하세요.
+- 도난은 분실물 신고와 구분하고, 자동차번호판은 방문 신고가 필요하다는 Tool 결과를 따르세요.
+- 조회 요청에서 물품명을 알 수 없으면 검색하지 말고 먼저 물어보세요.
+- 조회 요청에서 물품명을 알 수 있으면 search_lost112_candidates Tool로 실제 데이터를 조회하세요.
 - 사용자가 제공하지 않은 조건은 추측해서 Tool 인자에 넣지 마세요.
 - 조회하지 않은 결과를 찾았다고 말하지 마세요.
 - 습득물 후보와 다른 사람이 등록한 유사 분실 신고를 구분하세요.
@@ -48,6 +61,100 @@ class JupJupChatResponse(BaseModel):
 
     message: str
     search_result: AgentResult | None = None
+    report_draft: LostReportDraft | None = None
+
+
+_REPORT_REQUEST_PATTERNS = (
+    re.compile(
+        r"(?:분실\s*)?신고(?:서|내용|문)?(?:를|을|도)?\s*"
+        r".{0,12}(?:써|작성|정리|검토|점검|준비|만들|도와)"
+    ),
+    re.compile(
+        r"(?:써|작성|정리|검토|점검|준비|만들|도와).{0,12}"
+        r"(?:분실\s*)?신고(?:서|내용|문)?"
+    ),
+    re.compile(
+        r"(?:민원\s*)?접수.{0,12}(?:도와|준비|작성|검토|점검|빠진|누락)"
+    ),
+    re.compile(r"(?:빠진|누락).{0,12}(?:내용|항목).{0,12}(?:봐|확인|검토)"),
+)
+
+
+def _message_content_text(content: Any) -> str:
+    """문자열 또는 멀티모달 메시지에서 텍스트만 꺼낸다."""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+
+    chunks: list[str] = []
+    for block in content:
+        if isinstance(block, str):
+            chunks.append(block)
+        elif isinstance(block, dict) and block.get("type") == "text":
+            chunks.append(str(block.get("text", "")))
+    return "\n".join(chunk for chunk in chunks if chunk)
+
+
+def _latest_user_text(messages: list[Any]) -> str:
+    """Memory 전체에서 현재 턴의 마지막 사용자 메시지를 찾는다."""
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage):
+            return _message_content_text(message.content)
+        if isinstance(message, dict) and message.get("role") == "user":
+            return _message_content_text(message.get("content"))
+    return ""
+
+
+def is_explicit_report_request(text: str) -> bool:
+    """사용자가 현재 메시지에서 신고서 도움을 분명히 요청했는지 판별한다."""
+    normalized = re.sub(r"\s+", " ", text.strip())
+    return any(pattern.search(normalized) for pattern in _REPORT_REQUEST_PATTERNS)
+
+
+def _tool_name(tool_definition: BaseTool | dict[str, Any]) -> str | None:
+    if isinstance(tool_definition, BaseTool):
+        return tool_definition.name
+    if isinstance(tool_definition.get("name"), str):
+        return tool_definition["name"]
+    function = tool_definition.get("function")
+    if isinstance(function, dict) and isinstance(function.get("name"), str):
+        return function["name"]
+    return None
+
+
+@wrap_model_call
+def gate_report_tool_for_model(request: Any, handler: Any) -> Any:
+    """명시적 신고서 요청이 없는 턴에는 모델에게 신고서 Tool을 숨긴다."""
+    if is_explicit_report_request(_latest_user_text(request.messages)):
+        return handler(request)
+
+    tools = [
+        tool_definition
+        for tool_definition in request.tools
+        if _tool_name(tool_definition) != "prepare_lost_report_draft"
+    ]
+    return handler(request.override(tools=tools))
+
+
+@wrap_tool_call
+def block_unrequested_report_tool(request: Any, handler: Any) -> Any:
+    """모델이 Tool 이름을 임의 생성해도 명시적 요청 없이는 실행하지 않는다."""
+    if request.tool_call["name"] != "prepare_lost_report_draft":
+        return handler(request)
+
+    messages = request.state.get("messages", [])
+    if is_explicit_report_request(_latest_user_text(messages)):
+        return handler(request)
+
+    return ToolMessage(
+        content=(
+            "현재 사용자 메시지에는 신고서 작성 요청이 없으므로 실행하지 않았습니다. "
+            "습득물 조회 또는 사용자의 질문에만 답하세요."
+        ),
+        tool_call_id=request.tool_call["id"],
+        name=request.tool_call["name"],
+    )
 
 
 def _result_for_model(result: AgentResult) -> str:
@@ -123,6 +230,50 @@ def create_lost112_search_tool(service: JupJupAgentService) -> BaseTool:
     return search_lost112_candidates
 
 
+def create_lost_report_tool() -> BaseTool:
+    """분실신고 내용을 점검하고 사용자가 검토할 초안을 만드는 Tool."""
+
+    @tool("prepare_lost_report_draft", response_format="content_and_artifact")
+    def prepare_lost_report_draft(
+        item_name: str | None = None,
+        category: str | None = None,
+        lost_date: date | None = None,
+        lost_time: str | None = None,
+        lost_place: str | None = None,
+        region: str | None = None,
+        color: str | None = None,
+        size: str | None = None,
+        brand: str | None = None,
+        quantity: int | None = None,
+        features: list[str] | None = None,
+        circumstances: str | None = None,
+        incident_type: str = "분실",
+    ) -> tuple[str, LostReportDraft]:
+        """분실신고 초안, 누락 항목, 개선 방법과 공식 접수 링크를 반환한다.
+
+        신고를 제출하거나 경찰민원24 계정에 접근하지 않는다. 대화에서 확인된
+        사실만 전달하고, 모르는 값은 비워 둔다.
+        """
+        draft = build_lost_report_draft(
+            item_name=item_name,
+            category=category,
+            lost_date=lost_date,
+            lost_time=lost_time,
+            lost_place=lost_place,
+            region=region,
+            color=color,
+            size=size,
+            brand=brand,
+            quantity=quantity,
+            features=features,
+            circumstances=circumstances,
+            incident_type=incident_type,
+        )
+        return draft.model_dump_json(exclude_none=True), draft
+
+    return prepare_lost_report_draft
+
+
 def build_middlewares() -> list[Any]:
     """입출력 개인정보 보호와 Agent/Tool 과호출 방지 정책."""
     return [
@@ -152,13 +303,18 @@ def build_middlewares() -> list[Any]:
         ),
         ToolRetryMiddleware(
             max_retries=1,
-            tools=["search_lost112_candidates"],
+            tools=["search_lost112_candidates", "prepare_lost_report_draft"],
             on_failure="continue",
             initial_delay=0.5,
         ),
         ToolCallLimitMiddleware(
             tool_name="search_lost112_candidates", run_limit=1
         ),
+        ToolCallLimitMiddleware(
+            tool_name="prepare_lost_report_draft", run_limit=1
+        ),
+        gate_report_tool_for_model,
+        block_unrequested_report_tool,
         ModelCallLimitMiddleware(run_limit=4, exit_behavior="end"),
     ]
 
@@ -166,16 +322,7 @@ def build_middlewares() -> list[Any]:
 def _message_text(message: AIMessage | None) -> str:
     if message is None:
         return "답변을 생성하지 못했습니다."
-    if isinstance(message.content, str):
-        return message.content
-
-    chunks: list[str] = []
-    for block in message.content:
-        if isinstance(block, str):
-            chunks.append(block)
-        elif isinstance(block, dict) and block.get("type") == "text":
-            chunks.append(str(block.get("text", "")))
-    return "\n".join(chunk for chunk in chunks if chunk) or "답변을 생성하지 못했습니다."
+    return _message_content_text(message.content) or "답변을 생성하지 못했습니다."
 
 
 class JupJupChatAgent:
@@ -195,10 +342,11 @@ class JupJupChatAgent:
             model = ChatOpenAI(model=model_name, api_key=api_key, temperature=0)
 
         self.search_tool = create_lost112_search_tool(service)
+        self.report_tool = create_lost_report_tool()
         self.checkpointer = InMemorySaver()
         self.graph = create_agent(
             model=model,
-            tools=[self.search_tool],
+            tools=[self.search_tool, self.report_tool],
             system_prompt=SYSTEM_PROMPT,
             middleware=build_middlewares(),
             checkpointer=self.checkpointer,
@@ -212,9 +360,20 @@ class JupJupChatAgent:
             config={"configurable": {"thread_id": thread_id}},
         )
 
+        messages = state["messages"]
+        current_turn_start = max(
+            (
+                index
+                for index, message in enumerate(messages)
+                if isinstance(message, HumanMessage)
+            ),
+            default=-1,
+        )
+
         final_message: AIMessage | None = None
         search_result: AgentResult | None = None
-        for message in state["messages"]:
+        report_draft: LostReportDraft | None = None
+        for message in messages[current_turn_start + 1 :]:
             if isinstance(message, AIMessage):
                 final_message = message
             elif (
@@ -223,7 +382,15 @@ class JupJupChatAgent:
                 and isinstance(message.artifact, AgentResult)
             ):
                 search_result = message.artifact
+            elif (
+                isinstance(message, ToolMessage)
+                and message.name == self.report_tool.name
+                and isinstance(message.artifact, LostReportDraft)
+            ):
+                report_draft = message.artifact
 
         return JupJupChatResponse(
-            message=_message_text(final_message), search_result=search_result
+            message=_message_text(final_message),
+            search_result=search_result,
+            report_draft=report_draft,
         )
