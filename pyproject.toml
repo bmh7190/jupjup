@@ -13,6 +13,7 @@ dependencies = [
   "langchain-openai>=1.0,<2",
   "pydantic>=2.7,<3",
   "python-dotenv>=1.0,<2",
+  "fastapi>=0.110,<1",
 ]
 
 [project.optional-dependencies]
@@ -31,3 +32,5 @@ where = ["src"]
 [tool.setuptools.package-data]
 jupjup = ["web_assets/*.html"]
 
+[tool.vercel]
+entrypoint = "src.jupjup.web:app"
