@@ -4,8 +4,12 @@ import unittest
 import xml.etree.ElementTree as ET
 from datetime import date
 
-from jupjup.api_client import API_DEFINITIONS, Lost112ApiClient
-from jupjup.models import RecordSource
+from jupjup.api_client import (
+    API_DEFINITIONS,
+    Lost112ApiClient,
+    _product_category_codes,
+)
+from jupjup.models import LostItemQuery, RecordSource
 
 
 FOUND_XML = """
@@ -20,6 +24,26 @@ FOUND_XML = """
 
 
 class ApiParsingTest(unittest.TestCase):
+    def test_wallet_category_codes_are_resolved(self) -> None:
+        self.assertEqual(_product_category_codes("검정 카드지갑"), ("PRH000", None))
+        self.assertEqual(_product_category_codes("남성용 지갑"), ("PRH000", "PRH200"))
+
+    def test_lost_search_uses_working_category_operation_and_start_date(self) -> None:
+        definition = next(
+            d for d in API_DEFINITIONS if d.source == RecordSource.POLICE_LOST
+        )
+        client = Lost112ApiClient("test-key")
+
+        params = client._build_list_params(
+            definition,
+            LostItemQuery(item_name="지갑", lost_date=date(2026, 9, 9)),
+        )
+
+        self.assertEqual(definition.list_operation, "getLostGoodsInfoAccToClAreaPd")
+        self.assertEqual(params["START_YMD"], "20260909")
+        self.assertEqual(params["PRDT_CL_CD_01"], "PRH000")
+        self.assertNotIn("LST_PRDT_NM", params)
+
     def test_found_record_is_normalized(self) -> None:
         root = ET.fromstring(FOUND_XML)
         item = root.find(".//item")
@@ -47,4 +71,3 @@ class ApiParsingTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
