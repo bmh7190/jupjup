@@ -57,7 +57,7 @@ cp .env.example .env
 ```dotenv
 DATA_GO_KR_SERVICE_KEY=공공데이터포털_인증키
 OPENAI_API_KEY=OpenAI_API_키
-OPENAI_MODEL=gpt-4.1-mini
+OPENAI_MODEL=gpt-5.4-mini
 ```
 
 기존 `.env`가 있다면 프로젝트 루트로 옮기거나 `--env` 뒤에 해당 파일의 절대경로를 지정할 수 있습니다. 자연어 추출에는 `OPENAI_API_KEY`가 필요합니다.
