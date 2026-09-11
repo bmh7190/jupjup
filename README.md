@@ -1,14 +1,14 @@
 # JupJup (줍줍)
 
-사용자의 자연어에서 분실물 정보를 추출하고 경찰청 Open API 3종을 조회해 가능성이 높은 습득물 후보를 추천하는 1차 구현입니다.
+사용자의 자연어를 이해하고 경찰청 Open API 3종을 조회해 가능성이 높은 습득물 후보를 추천하는 LangChain Agent 1차 구현입니다.
 
 ## 이번 구현 범위
 
-1. 자연어에서 물품명, 날짜, 장소, 색상, 특징 추출
-2. 빠진 정보에 대한 추가 질문 생성
-3. 경찰청 분실물정보 조회
-4. 경찰청 습득물정보와 포털기관 습득물정보 조회
-5. 물품명, 분류, 색상, 장소, 날짜, 특징을 이용한 설명 가능한 유사도 계산
+1. Agent가 대화에서 검색 조건을 파악하고 필요한 정보를 추가 질문
+2. Agent가 `search_lost112_candidates` Custom Tool을 선택해 호출
+3. 경찰청 분실물·습득물·포털기관 습득물 API 조회
+4. 물품명, 분류, 색상, 장소, 날짜, 특징을 이용한 설명 가능한 유사도 계산
+5. 대화 Memory와 PII·재시도·호출 제한 Middleware 적용
 
 경찰민원24 신고서 작성과 접수 연결은 후속 기획 범위입니다.
 
@@ -19,16 +19,28 @@ src/jupjup/
 ├── config.py       # .env와 실행 설정
 ├── models.py       # Pydantic 데이터 모델
 ├── privacy.py      # LLM 전달 전 개인정보 마스킹
-├── extractor.py    # LangChain 구조화 정보 추출과 누락 질문
+├── extractor.py    # 독립 실행 가능한 LangChain 구조화 추출 체인
 ├── api_client.py   # 경찰청 API 3종 조회와 XML 표준화
 ├── matcher.py      # 유사도 계산과 추천 근거
 ├── vision.py       # 선택적인 습득물 사진 판정
-├── service.py      # 전체 실행 순서
-├── cli.py          # 터미널 실행 화면
+├── service.py      # API 조회·매칭 도메인 서비스
+├── agent.py        # create_agent, Custom Tool, Middleware, Memory
+├── cli.py          # Agent를 사용하는 터미널 채팅 화면
 └── demo.py         # API 키 없는 로컬 데모
 ```
 
 `경찰청 분실물정보`는 다른 사용자의 분실 신고이므로 습득물 후보와 섞지 않고 `유사한 기존 분실 신고`로 표시합니다. 실제 후보 추천에는 `경찰청 습득물정보`와 `포털기관 습득물정보`를 사용합니다.
+
+## LangChain Agent 구성
+
+- `create_agent`: 모델이 대화를 해석하고 Tool 호출 여부와 인자를 결정합니다.
+- `@tool`: `search_lost112_candidates`가 API 3종 조회와 후보 매칭을 실행합니다.
+- `InMemorySaver`: 같은 `thread_id`의 이전 대화를 기억합니다.
+- `PIIMiddleware`: 이메일, 카드번호, 휴대전화번호, 주민등록번호를 마스킹합니다.
+- `ToolRetryMiddleware`: 일시적인 Tool 오류를 한 번 재시도합니다.
+- `ToolCallLimitMiddleware`, `ModelCallLimitMiddleware`: 한 요청에서 불필요한 반복 호출을 막습니다.
+
+현재 Tool은 조회 전용이므로 Human-in-the-loop 승인을 요구하지 않습니다. 후속 범위인 경찰민원24 신고서 제출처럼 외부 상태를 바꾸는 Tool을 추가할 때 제출 직전에 `HumanInTheLoopMiddleware`를 적용합니다.
 
 ## 설치
 

@@ -6,12 +6,13 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from uuid import uuid4
 
+from .agent import JupJupChatAgent, JupJupChatResponse
 from .api_client import Lost112ApiClient
 from .config import Settings
 from .demo import run_demo
-from .extractor import LostItemExtractor
-from .models import AgentResult, LostItemQuery
+from .models import AgentResult
 from .service import JupJupAgentService
 from .vision import VisionMatcher
 
@@ -24,29 +25,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--demo", action="store_true", help="외부 API 없이 예시 데이터로 실행")
     parser.add_argument("--json", action="store_true", help="최종 결과를 JSON으로 출력")
     return parser
-
-
-def collect_query(extractor: LostItemExtractor, initial_text: str | None) -> LostItemQuery:
-    messages: list[str] = []
-    if initial_text:
-        messages.append(f"사용자: {initial_text}")
-    else:
-        print("잃어버린 물건, 날짜와 장소를 자연스럽게 설명해주세요.")
-        messages.append(f"사용자: {input('> ').strip()}")
-
-    for _ in range(3):
-        query = extractor.extract(messages)
-        if query.search_ready and not query.missing_fields:
-            return query
-        if initial_text or not query.follow_up_question:
-            return query
-        print(f"\nAgent: {query.follow_up_question}")
-        answer = input("> ").strip()
-        if not answer:
-            return query
-        messages.append(f"Agent: {query.follow_up_question}")
-        messages.append(f"사용자: {answer}")
-    return extractor.extract(messages)
 
 
 def print_result(result: AgentResult) -> None:
@@ -78,6 +56,32 @@ def print_result(result: AgentResult) -> None:
             print(f"- {record.item_name} / {record.event_date or '-'} / {record.event_place or '-'}")
 
 
+def print_chat_response(response: JupJupChatResponse, *, as_json: bool) -> None:
+    if as_json:
+        print(response.model_dump_json(indent=2))
+        return
+    print(f"\n줍줍이: {response.message}")
+    if response.search_result:
+        print_result(response.search_result)
+
+
+def run_chat(agent: JupJupChatAgent, initial_text: str | None, *, as_json: bool) -> int:
+    """같은 thread_id를 사용해 여러 입력 사이의 대화를 기억한다."""
+    thread_id = str(uuid4())
+    if initial_text:
+        response = agent.chat(initial_text, thread_id=thread_id)
+        print_chat_response(response, as_json=as_json)
+        return 0 if not response.search_result or not response.search_result.errors else 1
+
+    print("잃어버린 물건을 설명해주세요. 종료하려면 '종료'를 입력하세요.")
+    while True:
+        user_text = input("> ").strip()
+        if not user_text or user_text.lower() in {"종료", "quit", "exit"}:
+            return 0
+        response = agent.chat(user_text, thread_id=thread_id)
+        print_chat_response(response, as_json=as_json)
+
+
 def main() -> int:
     args = build_parser().parse_args()
     if args.demo:
@@ -91,13 +95,6 @@ def main() -> int:
         settings = Settings.from_env(args.env)
         if not settings.openai_api_key:
             raise ValueError("OPENAI_API_KEY가 없습니다. .env.example을 참고하세요.")
-        extractor = LostItemExtractor(
-            model_name=settings.openai_model, api_key=settings.openai_api_key
-        )
-        query = collect_query(extractor, args.text)
-        if not query.item_name:
-            print("물품명을 확인하지 못해 검색을 시작할 수 없습니다.", file=sys.stderr)
-            return 2
 
         api_client = Lost112ApiClient(
             settings.data_service_key,
@@ -111,18 +108,16 @@ def main() -> int:
                 model_name=settings.openai_model, api_key=settings.openai_api_key
             )
         service = JupJupAgentService(api_client, vision_matcher=vision_matcher)
-        result = service.run(query)
-    except (ValueError, RuntimeError) as exc:
+        agent = JupJupChatAgent(
+            service,
+            model_name=settings.openai_model,
+            api_key=settings.openai_api_key,
+        )
+        return run_chat(agent, args.text, as_json=args.json)
+    except (ValueError, RuntimeError, OSError) as exc:
         print(f"실행 오류: {exc}", file=sys.stderr)
         return 1
-
-    if args.json:
-        print(result.model_dump_json(indent=2))
-    else:
-        print_result(result)
-    return 0 if not result.errors else 1
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
