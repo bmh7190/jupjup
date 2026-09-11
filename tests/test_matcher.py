@@ -44,9 +44,49 @@ class MatcherTest(unittest.TestCase):
 
         ranked = LostItemMatcher().rank(self.query, [far, close])
 
+        self.assertEqual(len(ranked), 1)
         self.assertEqual(ranked[0].record.atc_id, "close")
-        self.assertGreater(ranked[0].score, ranked[1].score)
         self.assertTrue(any("날짜" in reason for reason in ranked[0].reasons))
+
+    def test_item_found_before_loss_is_not_a_candidate(self) -> None:
+        impossible = SearchRecord(
+            source=RecordSource.POLICE_FOUND,
+            record_type="found",
+            atc_id="found-before-loss",
+            item_name="검정 카드지갑",
+            event_date=date(2026, 9, 8),
+            event_place="강남역",
+            color="검정",
+        )
+
+        self.assertEqual(LostItemMatcher().rank(self.query, [impossible]), [])
+
+    def test_item_without_found_date_remains_a_candidate(self) -> None:
+        unknown_date = SearchRecord(
+            source=RecordSource.POLICE_FOUND,
+            record_type="found",
+            atc_id="unknown-date",
+            item_name="검정 카드지갑",
+            event_place="강남역",
+            color="검정",
+        )
+
+        ranked = LostItemMatcher().rank(self.query, [unknown_date])
+
+        self.assertEqual([candidate.record.atc_id for candidate in ranked], ["unknown-date"])
+
+    def test_low_score_record_is_not_returned_as_candidate(self) -> None:
+        unrelated = SearchRecord(
+            source=RecordSource.POLICE_FOUND,
+            record_type="found",
+            atc_id="unrelated",
+            item_name="분홍색 장난감 지갑",
+            event_date=date(2026, 9, 20),
+            event_place="제주공항",
+            color="분홍",
+        )
+
+        self.assertEqual(LostItemMatcher().rank(self.query, [unrelated]), [])
 
     def test_lost_report_is_not_returned_as_found_candidate(self) -> None:
         lost = SearchRecord(
@@ -60,4 +100,3 @@ class MatcherTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

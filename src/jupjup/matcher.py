@@ -18,6 +18,7 @@ DEFAULT_WEIGHTS = {
     "date": 0.15,
     "features": 0.10,
 }
+MIN_CANDIDATE_SCORE = 40.0
 
 COLOR_ALIASES = {
     "검정": {"검정", "검은", "블랙", "black"},
@@ -44,7 +45,15 @@ class LostItemMatcher:
         candidates = [
             self.score(query, record, (vision_scores or {}).get(record.atc_id))
             for record in records
-            if record.record_type == "found"
+            if (
+                record.record_type == "found"
+                and _is_temporally_possible(query, record)
+            )
+        ]
+        candidates = [
+            candidate
+            for candidate in candidates
+            if candidate.score >= MIN_CANDIDATE_SCORE
         ]
         candidates.sort(key=lambda candidate: candidate.score, reverse=True)
         return candidates[:limit]
@@ -100,6 +109,13 @@ def _query_has_value(query: LostItemQuery, key: str) -> bool:
         "date": bool(query.lost_date),
         "features": bool(query.features or query.brand),
     }[key]
+
+
+def _is_temporally_possible(query: LostItemQuery, record: SearchRecord) -> bool:
+    """분실 전에 습득된 물건은 동일한 물건일 수 없으므로 후보에서 제외한다."""
+    if not query.lost_date or not record.event_date:
+        return True
+    return record.event_date >= query.lost_date
 
 
 def _normalize(value: str | None) -> str:
