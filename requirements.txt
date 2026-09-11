@@ -3,3 +3,7 @@ langchain-openai>=1.0,<2
 pydantic>=2.7,<3
 python-dotenv>=1.0,<2
 
+# 웹 채팅 화면(가시화)용 — CLI만 쓸 경우 설치하지 않아도 됨
+fastapi>=0.110,<1
+uvicorn[standard]>=0.29,<1
+

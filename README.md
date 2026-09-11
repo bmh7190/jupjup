@@ -26,6 +26,8 @@ src/jupjup/
 ├── service.py      # API 조회·매칭 도메인 서비스
 ├── agent.py        # create_agent, Custom Tool, Middleware, Memory
 ├── cli.py          # Agent를 사용하는 터미널 채팅 화면
+├── web.py          # 같은 Agent를 브라우저 채팅 화면으로 보여주는 FastAPI 서버
+├── web_assets/     # web.py가 서빙하는 정적 채팅 UI (index.html)
 └── demo.py         # API 키 없는 로컬 데모
 ```
 
@@ -57,7 +59,7 @@ cp .env.example .env
 ```dotenv
 DATA_GO_KR_SERVICE_KEY=공공데이터포털_인증키
 OPENAI_API_KEY=OpenAI_API_키
-OPENAI_MODEL=gpt-4.1-mini
+OPENAI_MODEL=gpt-5.4-mini
 ```
 
 기존 `.env`가 있다면 프로젝트 루트로 옮기거나 `--env` 뒤에 해당 파일의 절대경로를 지정할 수 있습니다. 자연어 추출에는 `OPENAI_API_KEY`가 필요합니다.
@@ -86,6 +88,27 @@ jupjup --text "어제 저녁 강남역에서 검은색 카드지갑을 잃어버
 
 ```bash
 jupjup --vision
+```
+
+## 웹 채팅 화면 (가시화)
+
+터미널 대신 브라우저에서 시연할 수 있는 최소 채팅 화면입니다. Agent 로직은 그대로이고,
+`JupJupChatAgent.chat()` 호출 결과를 채팅 UI로 보여주기만 합니다.
+
+```bash
+python -m pip install -e ".[web]"   # fastapi, uvicorn 설치
+jupjup-web
+```
+
+브라우저에서 http://127.0.0.1:8000 을 열면 채팅 화면이 뜹니다. `.env`에 실제 키가 있으면
+실제 Agent가 응답하고, 키가 없거나 오류가 나면 화면 상단에 오류 메시지가 표시됩니다.
+이 경우에도 입력창 옆 "데모 모드" 버튼을 누르면 `demo.py`의 예시 데이터로 후보 카드 화면을
+바로 확인할 수 있습니다.
+
+같은 서버를 직접 띄우려면 다음처럼 실행해도 됩니다.
+
+```bash
+PYTHONPATH=src uvicorn jupjup.web:app --reload
 ```
 
 ## 점수 기준

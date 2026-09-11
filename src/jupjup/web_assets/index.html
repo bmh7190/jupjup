@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>줍줍이 채팅</title>
+<style>
+  :root {
+    --bg: #f4f6fb;
+    --panel: #ffffff;
+    --border: #e2e6f0;
+    --text: #1f2430;
+    --muted: #6b7280;
+    --brand: #4f46e5;
+    --brand-weak: #eef0ff;
+    --bubble-user: #4f46e5;
+    --bubble-user-text: #ffffff;
+    --bubble-bot: #ffffff;
+    --score-track: #eef0f5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 14px 20px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  header h1 {
+    font-size: 16px;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #d1d5db;
+    display: inline-block;
+  }
+  #status-dot.ok { background: #22c55e; }
+  #status-dot.error { background: #ef4444; }
+  #status-text { font-size: 12px; color: var(--muted); }
+  main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .row { display: flex; gap: 10px; max-width: 760px; }
+  .row.user { align-self: flex-end; flex-direction: row-reverse; }
+  .row.bot { align-self: flex-start; }
+  .avatar {
+    flex-shrink: 0;
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+    background: var(--brand-weak);
+  }
+  .row.user .avatar { background: #e0e7ff; }
+  .bubble {
+    padding: 10px 14px;
+    border-radius: 14px;
+    line-height: 1.5;
+    font-size: 14px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .row.user .bubble { background: var(--bubble-user); color: var(--bubble-user-text); border-bottom-right-radius: 4px; }
+  .row.bot .bubble { background: var(--bubble-bot); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+
+  .panel {
+    max-width: 760px;
+    align-self: flex-start;
+    margin-left: 42px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .panel h3 { margin: 0 0 8px; font-size: 13px; color: var(--muted); font-weight: 600; }
+  .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .chip {
+    font-size: 12px;
+    background: var(--brand-weak);
+    color: var(--brand);
+    padding: 3px 10px;
+    border-radius: 999px;
+  }
+  .status-line { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  .status-line .err { color: #dc2626; margin-left: 8px; }
+
+  .candidates { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+  .card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: #fbfbfe;
+  }
+  .card .thumb {
+    width: 100%;
+    height: 100%;
+    border-radius: 8px;
+    background: #eef0f5 center/cover no-repeat;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted);
+    font-size: 12px;
+    overflow: hidden;
+  }
+  .card .thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .card .title-row { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+  .card .title { font-weight: 600; font-size: 13px; }
+  .card .source-badge {
+    font-size: 11px; color: var(--muted); background: #f0f1f6; padding: 2px 8px; border-radius: 999px;
+    width: fit-content;
+  }
+  .card .meta { font-size: 12px; color: var(--muted); }
+  .card .reasons { display: flex; flex-wrap: wrap; gap: 4px; }
+  .card .reason {
+    font-size: 11px; background: #ecfdf5; color: #047857; padding: 2px 8px; border-radius: 999px;
+  }
+  .card .links { display: flex; gap: 8px; margin-top: 2px; }
+  .card .links a { font-size: 11px; color: var(--brand); text-decoration: none; }
+  .card .links a:hover { text-decoration: underline; }
+
+  .similar-list { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+
+  .typing { font-size: 13px; color: var(--muted); font-style: italic; }
+
+  footer {
+    padding: 14px 20px 18px;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+  }
+  footer input {
+    flex: 1;
+    padding: 11px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    font-size: 14px;
+    outline: none;
+  }
+  footer input:focus { border-color: var(--brand); }
+  footer button {
+    padding: 0 18px;
+    border-radius: 10px;
+    border: none;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  #send-btn { background: var(--brand); color: #fff; font-weight: 600; }
+  #send-btn:disabled { background: #c7c9f5; cursor: not-allowed; }
+  #demo-btn { background: #f0f1f6; color: var(--text); }
+  .empty-hint { color: var(--muted); font-size: 13px; text-align: center; margin-top: 40px; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>🔎 줍줍이 채팅</h1>
+    <div style="display:flex; align-items:center; gap:6px;">
+      <span id="status-dot"></span>
+      <span id="status-text">연결 확인 중…</span>
+    </div>
+  </header>
+
+  <main id="chat"></main>
+
+  <footer>
+    <input id="input" type="text" placeholder="예: 어제 저녁 강남역에서 검은색 카드지갑을 잃어버렸어" autocomplete="off" />
+    <button id="demo-btn" type="button" title="API 키 없이 화면만 확인">데모 모드</button>
+    <button id="send-btn" type="button">전송</button>
+  </footer>
+
+<script>
+const chat = document.getElementById('chat');
+const input = document.getElementById('input');
+const sendBtn = document.getElementById('send-btn');
+const demoBtn = document.getElementById('demo-btn');
+const statusDot = document.getElementById('status-dot');
+const statusText = document.getElementById('status-text');
+
+let threadId = null;
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+// 모델이 답변에 넣는 아주 단순한 마크다운(**굵게**, - 목록)만 안전하게 HTML로 바꾼다.
+function renderLiteMarkdown(text) {
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  return escaped
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/^- (.*)$/gm, '· $1');
+}
+
+function addMessage(role, text) {
+  const row = el('div', 'row ' + (role === 'user' ? 'user' : 'bot'));
+  row.appendChild(el('div', 'avatar', role === 'user' ? '🙂' : '🔎'));
+  const bubble = el('div', 'bubble');
+  if (role === 'user') {
+    bubble.textContent = text;
+  } else {
+    bubble.innerHTML = renderLiteMarkdown(text);
+  }
+  row.appendChild(bubble);
+  chat.appendChild(row);
+  chat.scrollTop = chat.scrollHeight;
+  return row;
+}
+
+function addTyping() {
+  const row = el('div', 'row bot');
+  row.id = 'typing-row';
+  row.appendChild(el('div', 'avatar', '🔎'));
+  row.appendChild(el('div', 'bubble typing', '생각하는 중…'));
+  chat.appendChild(row);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function removeTyping() {
+  const row = document.getElementById('typing-row');
+  if (row) row.remove();
+}
+
+function fieldChips(query) {
+  const labels = {
+    item_name: '물품', category: '분류', color: '색상', brand: '브랜드',
+    lost_date: '분실일', lost_time: '분실시각', lost_place: '장소', region: '지역',
+  };
+  const chips = [];
+  for (const [key, label] of Object.entries(labels)) {
+    const value = query && query[key];
+    if (value) chips.push(`${label}: ${value}`);
+  }
+  if (query && query.features && query.features.length) {
+    chips.push('특징: ' + query.features.join(', '));
+  }
+  return chips;
+}
+
+function renderResult(searchResult) {
+  const panel = el('div', 'panel');
+
+  const chips = fieldChips(searchResult.query);
+  if (chips.length) {
+    const chipRow = el('div', 'chip-row');
+    chips.forEach((c) => chipRow.appendChild(el('span', 'chip', c)));
+    panel.appendChild(chipRow);
+  }
+
+  const counts = searchResult.source_counts || {};
+  const errors = searchResult.errors || {};
+  const countParts = Object.entries(counts).map(([src, n]) => `${src} ${n}건`);
+  const statusLine = el('div', 'status-line');
+  statusLine.textContent = countParts.length ? '조회 결과: ' + countParts.join(' · ') : '';
+  Object.entries(errors).forEach(([src, msg]) => {
+    const span = el('span', 'err', `${src} 조회 실패(${msg})`);
+    statusLine.appendChild(span);
+  });
+  if (statusLine.textContent || Object.keys(errors).length) panel.appendChild(statusLine);
+
+  panel.appendChild(el('h3', null, `추천 습득물 후보 (${(searchResult.candidates || []).length}건)`));
+
+  const candidates = searchResult.candidates || [];
+  if (!candidates.length) {
+    panel.appendChild(el('div', 'status-line', '조건에 맞는 후보를 찾지 못했습니다.'));
+  } else {
+    const grid = el('div', 'candidates');
+    candidates.forEach((c) => grid.appendChild(renderCard(c)));
+    panel.appendChild(grid);
+  }
+
+  if (searchResult.similar_lost_reports && searchResult.similar_lost_reports.length) {
+    panel.appendChild(el('h3', null, '유사한 기존 분실 신고'));
+    const list = el('div', 'similar-list');
+    searchResult.similar_lost_reports.forEach((r) => {
+      list.appendChild(el('div', null, `- ${r.item_name || '이름 없음'} / ${r.event_date || '-'} / ${r.event_place || '-'}`));
+    });
+    panel.appendChild(list);
+  }
+
+  chat.appendChild(panel);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function renderCard(candidate) {
+  const record = candidate.record || {};
+  const card = el('div', 'card');
+
+  const thumb = el('div', 'thumb');
+  if (record.image_url) {
+    const placeholder = el('span', null, '이미지를 불러올 수 없음');
+    placeholder.style.display = 'none';
+    const img = document.createElement('img');
+    img.src = record.image_url;
+    img.alt = record.item_name || '습득물 사진';
+    img.onerror = () => { img.style.display = 'none'; placeholder.style.display = 'block'; };
+    thumb.appendChild(img);
+    thumb.appendChild(placeholder);
+  } else {
+    thumb.textContent = '등록된 사진 없음';
+  }
+  card.appendChild(thumb);
+
+  const titleRow = el('div', 'title-row');
+  titleRow.appendChild(el('span', 'title', record.item_name || '이름 없음'));
+  card.appendChild(titleRow);
+
+  if (record.source) card.appendChild(el('span', 'source-badge', record.source));
+  card.appendChild(el('div', 'meta', `${record.event_date || '-'} · ${record.event_place || '-'}`));
+  if (record.custody_place) card.appendChild(el('div', 'meta', '보관: ' + record.custody_place));
+
+  const links = el('div', 'links');
+  if (record.detail_url) {
+    const a = document.createElement('a');
+    a.href = record.detail_url; a.target = '_blank'; a.rel = 'noopener';
+    a.textContent = '상세 보기 →';
+    links.appendChild(a);
+  }
+  if (links.childElementCount) card.appendChild(links);
+
+  return card;
+}
+
+async function refreshStatus() {
+  try {
+    const res = await fetch('/api/status');
+    const data = await res.json();
+    if (data.ready) {
+      statusDot.className = 'ok';
+      statusText.textContent = '실제 Agent 연결됨';
+    } else {
+      statusDot.className = 'error';
+      statusText.textContent = data.error ? ('연결 안 됨: ' + data.error) : '연결 안 됨 — 데모 모드를 사용하세요';
+    }
+  } catch (e) {
+    statusDot.className = 'error';
+    statusText.textContent = '서버 상태를 확인할 수 없습니다';
+  }
+}
+
+async function send(endpoint, text) {
+  if (text) addMessage('user', text);
+  input.value = '';
+  sendBtn.disabled = true;
+  addTyping();
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text || '데모 모드로 화면 확인', thread_id: threadId }),
+    });
+    const data = await res.json();
+    threadId = data.thread_id;
+    removeTyping();
+    addMessage('bot', data.response.message);
+    if (data.response.search_result) {
+      renderResult(data.response.search_result);
+    }
+  } catch (e) {
+    removeTyping();
+    addMessage('bot', '서버와 통신 중 오류가 발생했습니다: ' + e);
+  } finally {
+    sendBtn.disabled = false;
+    input.focus();
+  }
+}
+
+sendBtn.addEventListener('click', () => {
+  const text = input.value.trim();
+  if (!text) return;
+  send('/api/chat', text);
+});
+
+demoBtn.addEventListener('click', () => {
+  send('/api/demo', null);
+});
+
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sendBtn.click();
+});
+
+addMessage('bot', '안녕하세요! 잃어버린 물건을 설명해주세요. 예: "어제 저녁 강남역에서 검은색 카드지갑을 잃어버렸어"\n(API 키 없이 화면만 보려면 "데모 모드" 버튼을 눌러보세요.)');
+refreshStatus();
+</script>
+</body>
+</html>
