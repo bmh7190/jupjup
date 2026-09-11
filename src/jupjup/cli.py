@@ -33,7 +33,7 @@ def print_result(result: AgentResult) -> None:
     print("\n[추출된 분실 정보]")
     print(result.query.model_dump_json(indent=2))
 
-    print("\n[API 조회 건수]")
+    print("\n[API가 보고한 전체 건수]")
     for source, count in result.source_counts.items():
         print(f"- {source}: {count}건")
     for source, error in result.errors.items():
@@ -43,6 +43,9 @@ def print_result(result: AgentResult) -> None:
         print("\n[실제 조회 범위]")
         for scope in result.search_scopes:
             status = "조회 완료" if scope.complete else "일부 조회/오류"
+            reason = scope.error or scope.partial_reason
+            if reason:
+                status = f"{status}: {reason}"
             print(f"- {scope.source.label}: {scope.start_date}~{scope.end_date}, "
                   f"{scope.pages_completed}페이지·{scope.retrieved_count}건 확인 ({status})")
 
