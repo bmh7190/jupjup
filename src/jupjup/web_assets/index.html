@@ -177,13 +177,14 @@
   #demo-btn { background: #f0f1f6; color: var(--text); }
   .empty-hint { color: var(--muted); font-size: 13px; text-align: center; margin-top: 40px; }
 
-  .report { width: min(960px, 100%); align-self: center; background: white; border: 1px solid var(--border); border-radius: 16px; padding: 30px; }
+  .report-row { width: min(800px, 100%); max-width:800px; }
+  .report { flex:1; min-width:0; background:white; border:1px solid var(--border); border-radius:14px 14px 14px 4px; padding:22px; }
   .report-top { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; border-bottom:1px solid var(--border); padding-bottom:22px; }
   .report-kicker { font-size:11px; letter-spacing:1.5px; color:var(--brand); font-weight:700; }
-  .report h2 { font-size:22px; margin:8px 0; letter-spacing:-.6px; }
+  .report h2 { font-size:18px; margin:8px 0; letter-spacing:-.6px; }
   .report p { font-size:13px; line-height:1.7; color:var(--muted); margin:0; }
   .report-badge { white-space:nowrap; padding:6px 10px; background:#f3f4f8; color:#646977; border-radius:6px; font-size:11px; }
-  .report-layout { display:grid; grid-template-columns:minmax(0,1.5fr) minmax(230px,1fr); gap:32px; padding-top:24px; }
+  .report-layout { display:grid; grid-template-columns:1fr; gap:20px; padding-top:18px; }
   .report h3 { font-size:14px; margin:0 0 16px; }
   .report-fields { display:grid; grid-template-columns:1fr 1fr; margin:0; gap:0 24px; }
   .report-field { border-bottom:1px solid #edf0f5; padding:13px 0; min-width:0; }
@@ -299,6 +300,8 @@ function fieldChips(query) {
 
 
 function renderReport(draft) {
+  const row = el('div', 'row bot report-row');
+  row.append(el('div', 'avatar', '🔎'));
   const section = el('section', 'report');
   section.setAttribute('aria-label', '분실신고서 초안');
   const top = el('div', 'report-top');
@@ -348,7 +351,7 @@ function renderReport(draft) {
   section.append(actions);
   const notices=el('details'); notices.append(el('summary',null,'제출 전 안내사항'));
   const list=el('ul','report-list'); (draft.notices||[]).forEach(t=>list.append(el('li',null,t))); notices.append(list); section.append(notices);
-  chat.append(section); section.scrollIntoView({block:'start',behavior:'smooth'});
+  row.append(section); chat.append(row); row.scrollIntoView({block:'start',behavior:'smooth'});
 }
 
 function renderResult(searchResult) {
