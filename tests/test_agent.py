@@ -21,6 +21,7 @@ from jupjup.agent import (
     create_lost112_search_tool,
     create_lost_report_tool,
     is_explicit_report_request,
+    is_explicit_search_request,
 )
 from jupjup.models import AgentResult, LostItemQuery
 
@@ -105,6 +106,49 @@ class EchoModel(BaseChatModel):
         )
 
 
+class ToolChoiceAwareModel(BaseChatModel):
+    """강제된 Tool 선택을 따르고 이후에는 최종 답변을 반환한다."""
+
+    _tool_choice: str | None = PrivateAttr(default=None)
+    _tool_choices: list[str | None] = PrivateAttr(default_factory=list)
+
+    @property
+    def _llm_type(self) -> str:
+        return "tool-choice-aware-model"
+
+    def bind_tools(
+        self, tools: Any, *, tool_choice: str | None = None, **kwargs: Any
+    ) -> BaseChatModel:
+        self._tool_choice = tool_choice
+        self._tool_choices.append(tool_choice)
+        return self
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: Any = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        if self._tool_choice == "search_lost112_candidates":
+            message = AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "search_lost112_candidates",
+                        "args": {
+                            "item_name": "카드지갑",
+                            "lost_place": "강남역",
+                        },
+                        "id": "forced-search-call-1",
+                    }
+                ],
+            )
+        else:
+            message = AIMessage(content="검색을 완료했습니다.")
+        return ChatResult(generations=[ChatGeneration(message=message)])
+
+
 class ScriptedReportModel(BaseChatModel):
     """신고서 Tool의 Agent 연결을 외부 모델 호출 없이 검증한다."""
 
@@ -180,6 +224,27 @@ class AgentConfigurationTest(unittest.TestCase):
         self.assertFalse(is_explicit_report_request("분실 신고는 어디에서 해?"))
         self.assertTrue(is_explicit_report_request("분실신고서 초안을 써줘"))
         self.assertTrue(is_explicit_report_request("빠진 항목이 있는지 확인해줘"))
+
+    def test_search_request_requires_an_explicit_item_or_action(self) -> None:
+        self.assertTrue(is_explicit_search_request("강남역에서 카드지갑을 잃어버렸어"))
+        self.assertTrue(is_explicit_search_request("검은 우산 조회해줘"))
+        self.assertFalse(is_explicit_search_request("강남역에서 잃어버렸어요"))
+        self.assertFalse(is_explicit_search_request("분실신고서를 작성해줘"))
+
+    def test_explicit_item_loss_forces_search_without_confirmation(self) -> None:
+        service = StubService()
+        model = ToolChoiceAwareModel()
+        agent = JupJupChatAgent(service, model=model)  # type: ignore[arg-type]
+
+        response = agent.chat(
+            "강남역에서 카드지갑을 잃어버렸어",
+            thread_id="forced-search-test",
+        )
+
+        self.assertEqual(response.message, "검색을 완료했습니다.")
+        self.assertIsNotNone(response.search_result)
+        self.assertIsNotNone(service.received)
+        self.assertIn("search_lost112_candidates", model._tool_choices)
 
     def test_report_tool_builds_reviewable_draft_without_submitting(self) -> None:
         report_tool = create_lost_report_tool()

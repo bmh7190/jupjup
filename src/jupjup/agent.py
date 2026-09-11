@@ -45,7 +45,7 @@ SYSTEM_PROMPT = """당신은 분실물 찾기를 돕는 '줍줍이'입니다.
 - 이 서비스는 신고를 자동 제출하지 않습니다. 제출됐다고 말하지 말고 경찰민원24 공식 링크를 안내하세요.
 - 도난은 분실물 신고와 구분하고, 자동차번호판은 방문 신고가 필요하다는 Tool 결과를 따르세요.
 - 조회 요청에서 물품명을 알 수 없으면 검색하지 말고 먼저 물어보세요.
-- 조회 요청에서 물품명을 알 수 있으면 search_lost112_candidates Tool로 실제 데이터를 조회하세요.
+- 조회 요청에서 물품명을 알 수 있으면 확인이나 동의를 다시 묻지 말고 같은 턴에 search_lost112_candidates Tool로 실제 데이터를 조회하세요.
 - 사용자가 제공하지 않은 조건은 추측해서 Tool 인자에 넣지 마세요.
 - 조회하지 않은 결과를 찾았다고 말하지 마세요.
 - 습득물 후보와 다른 사람이 등록한 유사 분실 신고를 구분하세요.
@@ -78,6 +78,11 @@ _REPORT_REQUEST_PATTERNS = (
         r"(?:민원\s*)?접수.{0,12}(?:도와|준비|작성|검토|점검|빠진|누락)"
     ),
     re.compile(r"(?:빠진|누락).{0,12}(?:내용|항목).{0,12}(?:봐|확인|검토)"),
+)
+
+_SEARCH_REQUEST_PATTERNS = (
+    re.compile(r"(?:을|를)\s*(?:잃어버|분실(?:했|한|함)|두고|놓고)"),
+    re.compile(r"(?:찾아|조회|검색)\s*(?:줘|해\s*줘|부탁)"),
 )
 
 
@@ -113,6 +118,26 @@ def is_explicit_report_request(text: str) -> bool:
     return any(pattern.search(normalized) for pattern in _REPORT_REQUEST_PATTERNS)
 
 
+def is_explicit_search_request(text: str) -> bool:
+    """물품을 명시해 바로 조회해 달라는 현재 턴의 표현을 판별한다."""
+    if is_explicit_report_request(text):
+        return False
+    normalized = re.sub(r"\s+", " ", text.strip())
+    return any(pattern.search(normalized) for pattern in _SEARCH_REQUEST_PATTERNS)
+
+
+def _search_tool_called_since_latest_user(messages: list[Any]) -> bool:
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage):
+            return False
+        if (
+            isinstance(message, ToolMessage)
+            and message.name == "search_lost112_candidates"
+        ):
+            return True
+    return False
+
+
 def _tool_name(tool_definition: BaseTool | dict[str, Any]) -> str | None:
     if isinstance(tool_definition, BaseTool):
         return tool_definition.name
@@ -136,6 +161,18 @@ def gate_report_tool_for_model(request: Any, handler: Any) -> Any:
         if _tool_name(tool_definition) != "prepare_lost_report_draft"
     ]
     return handler(request.override(tools=tools))
+
+
+@wrap_model_call
+def force_explicit_search_tool_for_model(request: Any, handler: Any) -> Any:
+    """물품이 명시된 조회 요청은 확인 질문 없이 검색 Tool을 선택한다."""
+    user_text = _latest_user_text(request.messages)
+    if (
+        is_explicit_search_request(user_text)
+        and not _search_tool_called_since_latest_user(request.messages)
+    ):
+        return handler(request.override(tool_choice="search_lost112_candidates"))
+    return handler(request)
 
 
 @wrap_tool_call
@@ -316,6 +353,7 @@ def build_middlewares() -> list[Any]:
         ToolCallLimitMiddleware(
             tool_name="prepare_lost_report_draft", run_limit=1
         ),
+        force_explicit_search_tool_for_model,
         gate_report_tool_for_model,
         block_unrequested_report_tool,
         ModelCallLimitMiddleware(run_limit=4, exit_behavior="end"),
