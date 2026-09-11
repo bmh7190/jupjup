@@ -43,6 +43,7 @@ src/jupjup/
 - `create_agent`: 모델이 대화를 해석하고 Tool 호출 여부와 인자를 결정합니다.
 - `@tool`: `search_lost112_candidates`가 API 3종 조회와 후보 매칭을 실행합니다.
 - `@tool`: `prepare_lost_report_draft`가 신고서 초안과 제출 전 체크리스트를 만듭니다.
+- 신고서 작성 요청이 들어오면 같은 thread의 검색·신고 대화에서 확인한 정보를 합칩니다. 물품명·분실 날짜·구체적인 장소가 부족하면 한 번에 하나씩 질문만 반환하며, 세 필수 정보가 모인 뒤에 초안을 표시합니다. 나머지 선택 정보는 입력을 강제하지 않고 개선 제안으로 안내합니다.
 - `InMemorySaver`: 같은 `thread_id`의 이전 대화를 기억합니다.
 - `PIIMiddleware`: 이메일, 카드번호, 휴대전화번호, 주민등록번호를 마스킹합니다.
 - `ToolRetryMiddleware`: 일시적인 Tool 오류를 한 번 재시도합니다.

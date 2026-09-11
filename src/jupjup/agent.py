@@ -51,7 +51,8 @@ SYSTEM_PROMPT = """당신은 분실물 찾기를 돕는 '줍줍이'입니다.
 - 사용자가 신고서 작성을 취소하거나 습득물 검색으로 전환하거나 대화를 마무리하면 신고서 Tool을 더 호출하지 마세요.
 - 단순히 물건을 잃어버렸다고 설명하거나 습득물 조회를 요청한 경우에는 신고서 Tool을 호출하지 마세요.
 - 신고서 작성만 요청한 경우에는 search_lost112_candidates Tool을 호출하지 마세요.
-- 신고서 작성 요청에서는 물품명, 분실 날짜, 구체적인 장소가 없으면 초안의 next_question으로 먼저 보완하세요.
+- 신고서 작성 요청에서는 물품명, 분실 날짜, 구체적인 장소가 없으면 초안의 next_question으로 먼저 보완하세요. 필수 정보가 모이기 전에는 초안을 준비했다고 말하지 마세요.
+- 시간, 지역, 색상, 크기, 브랜드, 수량, 특징, 분실 경위는 선택 정보입니다. 필수 정보처럼 답변을 요구하지 말고 완성된 초안의 개선 제안으로만 안내하세요.
 - prepare_lost_report_draft 결과가 준비되면 복사용 문장, 누락 항목, 개선 제안, 주의사항을 안내하세요.
 - 신고서 결과의 official_report_url과 official_guide_url을 답변에서 생략하지 마세요.
 - 이 서비스는 신고를 자동 제출하지 않습니다. 제출됐다고 말하지 말고 경찰민원24 공식 링크를 안내하세요.
@@ -440,14 +441,24 @@ class JupJupChatAgent:
             ):
                 report_draft = message.artifact
 
+        needs_report_details = bool(
+            report_draft is not None and report_draft.missing_essential_fields
+        )
+        if search_result is not None:
+            response_message = _search_result_message(search_result)
+        elif needs_report_details and report_draft is not None:
+            response_message = report_draft.next_question or (
+                "신고서 초안을 만들려면 필요한 분실 정보를 알려주세요."
+            )
+        else:
+            response_message = _message_text(final_message)
+
         return JupJupChatResponse(
             # 후보 링크와 점수의 기준은 Tool artifact다. 모델의 자연어 요약은
             # URL 파라미터 등을 변형할 수 있으므로 검색 턴에는 노출하지 않는다.
-            message=(
-                _search_result_message(search_result)
-                if search_result is not None
-                else _message_text(final_message)
-            ),
+            message=response_message,
             search_result=search_result,
-            report_draft=report_draft,
+            # Tool artifact는 Memory 안에 남아 다음 답변과 합쳐진다. 필수 정보가
+            # 부족한 동안에는 질문만 노출하고, 준비된 뒤에 초안 카드를 반환한다.
+            report_draft=None if needs_report_details else report_draft,
         )

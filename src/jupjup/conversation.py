@@ -188,15 +188,17 @@ def _assistant_requested_report_details(messages: list[Any]) -> bool:
     for message in reversed(messages):
         if isinstance(message, HumanMessage):
             continue
+        source = _tool_artifact_source(message)
+        if isinstance(source, LostReportDraft):
+            return bool(source.missing_essential_fields)
         if isinstance(message, AIMessage):
             text = message_content_text(message.content)
-            return bool(
-                re.search(
-                    r"(?:신고서|초안|분실).{0,80}(?:알려|확인|필요|무엇|언제|어디|어떤)|"
-                    r"(?:알려|확인|필요|무엇|언제|어디|어떤).{0,80}(?:신고서|초안|분실)",
-                    text,
-                )
-            )
+            if re.search(
+                r"(?:신고서|초안|분실).{0,80}(?:알려|확인|필요|무엇|언제|어디|어떤)|"
+                r"(?:알려|확인|필요|무엇|언제|어디|어떤).{0,80}(?:신고서|초안|분실)",
+                text,
+            ):
+                return True
     return False
 
 

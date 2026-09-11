@@ -377,6 +377,22 @@ class AgentConfigurationTest(unittest.TestCase):
                 [start, question, HumanMessage(content="고마워. 파란색으로 수정해줘")]
             )
         )
+        incomplete_draft = build_lost_report_draft()
+        self.assertTrue(
+            is_report_workflow_turn(
+                [
+                    start,
+                    ToolMessage(
+                        content="정보 보완 필요",
+                        tool_call_id="incomplete-report",
+                        name="prepare_lost_report_draft",
+                        artifact=incomplete_draft,
+                    ),
+                    AIMessage(content="초안을 갱신했습니다."),
+                    HumanMessage(content="지갑"),
+                ]
+            )
+        )
         self.assertFalse(
             is_report_workflow_turn(
                 [start, question, HumanMessage(content="오늘 날씨 어때?")]
@@ -418,8 +434,9 @@ class AgentConfigurationTest(unittest.TestCase):
         unrelated = agent.chat("오늘 날씨 어때?", thread_id="report-flow")
         isolated = agent.chat("파란색으로 수정해줘", thread_id="other-thread")
 
-        self.assertIsNotNone(missing.report_draft)
-        self.assertFalse(missing.report_draft.ready_for_user_review)  # type: ignore[union-attr]
+        self.assertIsNone(missing.report_draft)
+        self.assertIn("분실 물품명", missing.message)
+        self.assertNotIn("분실 날짜", missing.message)
         self.assertTrue(completed.report_draft.ready_for_user_review)  # type: ignore[union-attr]
         self.assertEqual(edited.report_draft.color, "파란색")  # type: ignore[union-attr]
         self.assertEqual(edited.report_draft.size, "가로 11cm")  # type: ignore[union-attr]
@@ -437,9 +454,9 @@ class AgentConfigurationTest(unittest.TestCase):
         self.assertIsNone(cleared.report_draft.lost_time)  # type: ignore[union-attr]
         self.assertIsNone(after_clear.report_draft.lost_time)  # type: ignore[union-attr]
         self.assertEqual(after_clear.report_draft.size, "가로 12cm")  # type: ignore[union-attr]
-        self.assertEqual(new_incident.report_draft.item_name, "휴대폰")  # type: ignore[union-attr]
-        self.assertIsNone(new_incident.report_draft.lost_date)  # type: ignore[union-attr]
-        self.assertIsNone(new_incident.report_draft.lost_place)  # type: ignore[union-attr]
+        self.assertIsNone(new_incident.report_draft)
+        self.assertIn("분실 날짜", new_incident.message)
+        self.assertNotIn("구체적인 분실 장소", new_incident.message)
 
     def test_search_request_requires_an_explicit_item_or_action(self) -> None:
         self.assertTrue(is_explicit_search_request("강남역에서 카드지갑을 잃어버렸어"))

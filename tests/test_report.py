@@ -46,7 +46,20 @@ class LostReportDraftTest(unittest.TestCase):
         self.assertIn("구체적인 분실 장소", draft.missing_essential_fields)
         self.assertIn("분실 수량", draft.missing_recommended_fields)
         self.assertIsNotNone(draft.next_question)
+        self.assertIn("분실 날짜", draft.next_question)
+        self.assertNotIn("구체적인 분실 장소", draft.next_question)
         self.assertTrue(draft.improvement_tips)
+
+    def test_optional_information_does_not_create_follow_up_question(self) -> None:
+        draft = build_lost_report_draft(
+            item_name="지갑",
+            lost_date=date(2026, 9, 10),
+            lost_place="강남역",
+        )
+
+        self.assertTrue(draft.ready_for_user_review)
+        self.assertTrue(draft.missing_recommended_fields)
+        self.assertIsNone(draft.next_question)
 
     def test_pii_is_masked_from_copy_text(self) -> None:
         draft = build_lost_report_draft(

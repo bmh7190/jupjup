@@ -111,7 +111,7 @@ def build_lost_report_draft(
         notices.insert(0, "자동차번호판 분실은 경찰관서 방문 신고가 필요합니다.")
 
     ready = not missing_essential and not is_theft
-    next_question = _next_question(missing_essential, missing_recommended)
+    next_question = _next_question(missing_essential)
     title = f"{clean_item_name or '물품'} 분실 신고"
     copy_text = _build_copy_text(
         item_name=clean_item_name,
@@ -180,15 +180,9 @@ def _improvement_tips(values: dict[str, object]) -> list[str]:
     return tips
 
 
-def _next_question(
-    missing_essential: list[str], missing_recommended: list[str]
-) -> str | None:
+def _next_question(missing_essential: list[str]) -> str | None:
     if missing_essential:
-        fields = ", ".join(missing_essential[:2])
-        return f"신고서 초안을 만들려면 {fields}을(를) 알려주세요."
-    if missing_recommended:
-        fields = ", ".join(missing_recommended[:2])
-        return f"더 찾기 쉬운 신고서를 위해 {fields}도 알려주실 수 있나요?"
+        return f"신고서 초안을 만들려면 {missing_essential[0]}을(를) 알려주세요."
     return None
 
 
