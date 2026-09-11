@@ -20,6 +20,7 @@ from jupjup.agent import (
     build_middlewares,
     create_lost112_search_tool,
     create_lost_report_tool,
+    is_explicit_report_request,
 )
 from jupjup.models import AgentResult, LostItemQuery
 
@@ -157,6 +158,23 @@ class AgentConfigurationTest(unittest.TestCase):
         assert response.report_draft is not None
         self.assertEqual(response.report_draft.item_name, "카드지갑")
         self.assertFalse(response.report_draft.auto_submitted)
+
+        following_response = agent.chat("고마워", thread_id="report-test")
+
+        self.assertIsNone(following_response.report_draft)
+
+    def test_report_tool_is_blocked_without_explicit_user_request(self) -> None:
+        agent = JupJupChatAgent(StubService(), model=ScriptedReportModel())  # type: ignore[arg-type]
+
+        response = agent.chat("강남역에서 카드지갑을 잃어버렸어", thread_id="no-report-test")
+
+        self.assertIsNone(response.report_draft)
+
+    def test_report_request_requires_an_explicit_action(self) -> None:
+        self.assertFalse(is_explicit_report_request("강남역에서 지갑을 잃어버렸어"))
+        self.assertFalse(is_explicit_report_request("분실 신고는 어디에서 해?"))
+        self.assertTrue(is_explicit_report_request("분실신고서 초안을 써줘"))
+        self.assertTrue(is_explicit_report_request("빠진 항목이 있는지 확인해줘"))
 
     def test_report_tool_builds_reviewable_draft_without_submitting(self) -> None:
         report_tool = create_lost_report_tool()
