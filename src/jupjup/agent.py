@@ -366,6 +366,15 @@ def _message_text(message: AIMessage | None) -> str:
     return _message_content_text(message.content) or "답변을 생성하지 못했습니다."
 
 
+def _search_result_message(result: AgentResult) -> str:
+    """모델이 후보의 URL이나 점수를 다시 쓰지 않도록 고정 안내문을 만든다."""
+    if result.candidates:
+        return f"습득물 후보 {len(result.candidates)}건을 찾았습니다."
+    if result.source_counts:
+        return "조회했지만 조건에 맞는 습득물 후보를 찾지 못했습니다."
+    return "분실물 조회에 실패했습니다. 아래 오류 내용을 확인해주세요."
+
+
 class JupJupChatAgent:
     """대화 Memory를 가진 실제 LangChain Tool-calling Agent."""
 
@@ -431,7 +440,13 @@ class JupJupChatAgent:
                 report_draft = message.artifact
 
         return JupJupChatResponse(
-            message=_message_text(final_message),
+            # 후보 링크와 점수의 기준은 Tool artifact다. 모델의 자연어 요약은
+            # URL 파라미터 등을 변형할 수 있으므로 검색 턴에는 노출하지 않는다.
+            message=(
+                _search_result_message(search_result)
+                if search_result is not None
+                else _message_text(final_message)
+            ),
             search_result=search_result,
             report_draft=report_draft,
         )
