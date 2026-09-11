@@ -1,7 +1,6 @@
 .env
 .venv/
+*.egg-info/
 __pycache__/
 *.py[cod]
 .pytest_cache/
-
-src/jupjup.egg-info/

@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from uuid import uuid4
 
+from langchain_core.exceptions import ModelAuthenticationError
+
 from .agent import JupJupChatAgent, JupJupChatResponse
 from .api_client import Lost112ApiClient
 from .config import Settings
@@ -114,6 +116,13 @@ def main() -> int:
             api_key=settings.openai_api_key,
         )
         return run_chat(agent, args.text, as_json=args.json)
+    except ModelAuthenticationError:
+        print(
+            "OpenAI 인증에 실패했습니다. 프로젝트 .env의 OPENAI_API_KEY를 "
+            "새로 발급한 키로 확인하세요.",
+            file=sys.stderr,
+        )
+        return 1
     except (ValueError, RuntimeError, OSError) as exc:
         print(f"실행 오류: {exc}", file=sys.stderr)
         return 1

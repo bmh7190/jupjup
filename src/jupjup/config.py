@@ -24,7 +24,8 @@ def load_env_file(path: Path | None = None) -> Path | None:
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, value = line.split("=", 1)
-            os.environ.setdefault(key.strip(), value.strip().strip("'\""))
+            # 로컬 실행에서는 선택한 .env가 셸에 남은 오래된 키보다 우선한다.
+            os.environ[key.strip()] = value.strip().strip("'\"")
         return candidate
     return None
 
@@ -49,9 +50,8 @@ class Settings:
             # Encoding 키와 Decoding 키를 동일하게 처리한 뒤 요청 시 한 번만 인코딩한다.
             data_service_key=unquote(raw_service_key),
             openai_api_key=os.getenv("OPENAI_API_KEY") or None,
-            openai_model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
+            openai_model=os.getenv("OPENAI_MODEL", "gpt-5.4-mini"),
             page_size=max(1, min(int(os.getenv("LOST112_PAGE_SIZE", "10")), 100)),
             timeout_seconds=max(1.0, float(os.getenv("LOST112_TIMEOUT_SECONDS", "15"))),
             detail_limit=max(0, int(os.getenv("LOST112_DETAIL_LIMIT", "5"))),
         )
-

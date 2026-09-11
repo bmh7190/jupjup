@@ -8,7 +8,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Mapping
 
 from .models import ApiSearchResponse, LostItemQuery, RecordSource, SearchRecord
@@ -41,7 +41,9 @@ API_DEFINITIONS = (
     ApiDefinition(
         source=RecordSource.POLICE_LOST,
         service="LostGoodsInfoInqireService",
-        list_operation="getLostGoodsInfoAccTpNmCstdyPlace",
+        # 명칭/보관장소 조회는 현재 기관 API에서 resultCode=04를 반환한다.
+        # 분류/지역/기간 조회는 동일한 승인 키로 정상 응답한다.
+        list_operation="getLostGoodsInfoAccToClAreaPd",
         detail_operation="getLostGoodsDetailInfo",
         item_param="LST_PRDT_NM",
         place_param="LST_PLACE",
@@ -66,6 +68,48 @@ API_DEFINITIONS = (
         record_type="found",
     ),
 )
+
+
+# 경찰청 공통코드의 상위 물품 분류. 자연어가 더 구체적일 수 있으므로
+# 각 분류의 대표 별칭도 함께 둔다. 코드 조회 API를 승인받으면 이 표를
+# 시작 시 동적으로 갱신하는 방식으로 확장할 수 있다.
+PRODUCT_CATEGORY_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("PRH000", ("카드지갑", "반지갑", "장지갑", "지갑")),
+    ("PRJ000", ("스마트폰", "핸드폰", "휴대폰", "아이폰", "갤럭시")),
+    ("PRI000", ("노트북", "랩톱", "컴퓨터")),
+    ("PRA000", ("백팩", "배낭", "가방")),
+    ("PRP000", ("신용카드", "체크카드", "교통카드", "카드")),
+    (
+        "PRN000",
+        ("주민등록증", "운전면허증", "면허증", "여권", "신분증", "증명서"),
+    ),
+    ("PRG000", ("이어폰", "카메라", "전자기기", "전자제품")),
+    ("PRK000", ("외투", "재킷", "자켓", "옷", "의류")),
+    ("PRO000", ("반지", "목걸이", "귀걸이", "시계", "귀금속")),
+    ("PRB000", ("책", "도서")),
+    ("PRC000", ("서류", "문서")),
+    ("PRL000", ("현금", "수표", "외화")),
+    ("PRF000", ("자동차열쇠", "차키", "자동차번호판", "내비게이션")),
+    ("PRE000", ("스포츠용품", "운동용품")),
+    ("PRR000", ("악기",)),
+    ("PRM000", ("상품권", "어음", "채권", "유가증권")),
+    ("PRQ000", ("쇼핑백",)),
+    ("PRD000", ("산업용품",)),
+)
+
+
+def _product_category_codes(text: str) -> tuple[str | None, str | None]:
+    """일반 물품명을 경찰청 상·하위 분류코드로 변환한다."""
+    normalized = text.replace(" ", "").lower()
+    for upper_code, aliases in PRODUCT_CATEGORY_ALIASES:
+        if any(alias.lower() in normalized for alias in aliases):
+            if upper_code == "PRH000":
+                if "여성" in normalized:
+                    return upper_code, "PRH100"
+                if "남성" in normalized:
+                    return upper_code, "PRH200"
+            return upper_code, None
+    return None, None
 
 
 class Lost112ApiError(RuntimeError):
@@ -112,12 +156,7 @@ class Lost112ApiClient:
         return responses, errors
 
     def search(self, definition: ApiDefinition, query: LostItemQuery) -> ApiSearchResponse:
-        params = {
-            "serviceKey": self.service_key,
-            "pageNo": "1",
-            "numOfRows": str(self.page_size),
-            definition.item_param: query.item_name or "",
-        }
+        params = self._build_list_params(definition, query)
         root = self._request_xml(definition.list_url, params)
         self._ensure_success(root, definition.source)
         total_count = _to_int(_text(root, "totalCount"))
@@ -133,6 +172,38 @@ class Lost112ApiClient:
             records[index] = self._fetch_and_merge_detail(definition, record)
 
         return ApiSearchResponse(source=definition.source, total_count=total_count, records=records)
+
+    def _build_list_params(
+        self, definition: ApiDefinition, query: LostItemQuery
+    ) -> dict[str, str]:
+        params = {
+            "serviceKey": self.service_key,
+            "pageNo": "1",
+            "numOfRows": str(self.page_size),
+        }
+        if definition.source != RecordSource.POLICE_LOST:
+            params[definition.item_param] = query.item_name or ""
+            return params
+
+        # 이 오퍼레이션은 START_YMD가 없으면 HTTP 200 안에 resultCode=04를 반환한다.
+        today = date.today()
+        start_date = (
+            query.lost_date
+            if query.lost_date and query.lost_date <= today
+            else today - timedelta(days=90)
+        )
+        params["START_YMD"] = start_date.strftime("%Y%m%d")
+        params["END_YMD"] = today.strftime("%Y%m%d")
+
+        category_text = " ".join(
+            value for value in (query.category, query.item_name) if value
+        )
+        upper_code, lower_code = _product_category_codes(category_text)
+        if upper_code:
+            params["PRDT_CL_CD_01"] = upper_code
+        if lower_code:
+            params["PRDT_CL_CD_02"] = lower_code
+        return params
 
     def _fetch_and_merge_detail(
         self, definition: ApiDefinition, record: SearchRecord
@@ -244,4 +315,3 @@ def _build_detail_url(atc_id: str, sequence: str | None) -> str | None:
     if sequence:
         params["FD_SN"] = sequence
     return f"https://minwon24.police.go.kr/main.do?{urllib.parse.urlencode(params)}"
-
