@@ -383,3 +383,16 @@ def search_tool_called_since_latest_user(messages: list[Any]) -> bool:
         ):
             return True
     return False
+
+
+def report_tool_called_since_latest_user(messages: list[Any]) -> bool:
+    """현재 사용자 턴에서 신고서 Tool이 이미 실행됐는지 확인한다."""
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage):
+            return False
+        if (
+            isinstance(message, ToolMessage)
+            and message.name == "prepare_lost_report_draft"
+        ):
+            return True
+    return False

@@ -154,6 +154,17 @@ class ToolChoiceAwareModel(BaseChatModel):
                     }
                 ],
             )
+        elif self._tool_choice == "prepare_lost_report_draft":
+            message = AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "prepare_lost_report_draft",
+                        "args": {},
+                        "id": "forced-report-call-1",
+                    }
+                ],
+            )
         else:
             message = AIMessage(content="검색을 완료했습니다.")
         return ChatResult(generations=[ChatGeneration(message=message)])
@@ -347,6 +358,22 @@ class AgentConfigurationTest(unittest.TestCase):
         response = agent.chat("강남역에서 카드지갑을 잃어버렸어", thread_id="no-report-test")
 
         self.assertIsNone(response.report_draft)
+
+    def test_explicit_report_request_forces_report_tool_without_search(self) -> None:
+        service = StubService()
+        model = ToolChoiceAwareModel()
+        agent = JupJupChatAgent(service, model=model)  # type: ignore[arg-type]
+
+        response = agent.chat(
+            "분실신고서 작성 도와줘",
+            thread_id="forced-report-test",
+        )
+
+        self.assertIn("분실 물품명", response.message)
+        self.assertIsNone(response.report_draft)
+        self.assertIsNone(response.search_result)
+        self.assertIsNone(service.received)
+        self.assertIn("prepare_lost_report_draft", model._tool_choices)
 
     def test_report_request_requires_an_explicit_action(self) -> None:
         self.assertFalse(is_explicit_report_request("강남역에서 지갑을 잃어버렸어"))

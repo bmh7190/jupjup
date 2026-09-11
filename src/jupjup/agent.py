@@ -31,6 +31,7 @@ from .conversation import (
     latest_user_text as _latest_user_text,
     message_content_text as _message_content_text,
     report_context_from_messages,
+    report_tool_called_since_latest_user,
     search_tool_called_since_latest_user,
 )
 from .models import AgentResult, LostItemQuery, LostReportDraft
@@ -130,6 +131,27 @@ def force_explicit_search_tool_for_model(request: Any, handler: Any) -> Any:
     if not search_tool_called_since_latest_user(request.messages):
         return handler(request.override(tool_choice="search_lost112_candidates"))
     return handler(request)
+
+
+@wrap_model_call
+def route_report_workflow_for_model(request: Any, handler: Any) -> Any:
+    """신고서 흐름에서는 검색 Tool을 숨기고 신고서 Tool을 확실히 실행한다."""
+    if not is_report_workflow_turn(request.messages):
+        return handler(request)
+
+    tools = [
+        tool_definition
+        for tool_definition in request.tools
+        if _tool_name(tool_definition) != "search_lost112_candidates"
+    ]
+    if report_tool_called_since_latest_user(request.messages):
+        return handler(request.override(tools=tools))
+    return handler(
+        request.override(
+            tools=tools,
+            tool_choice="prepare_lost_report_draft",
+        )
+    )
 
 
 @wrap_tool_call
@@ -354,6 +376,7 @@ def build_middlewares() -> list[Any]:
             tool_name="prepare_lost_report_draft", run_limit=1
         ),
         force_explicit_search_tool_for_model,
+        route_report_workflow_for_model,
         gate_report_tool_for_model,
         block_unrequested_report_tool,
         block_search_without_item_name,
