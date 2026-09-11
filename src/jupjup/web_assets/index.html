@@ -106,6 +106,7 @@
   }
   .status-line { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
   .status-line .err { color: #dc2626; margin-left: 8px; }
+  .status-line .notice { display: block; color: #a16207; margin-top: 4px; }
 
   .candidates { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
   .card {
@@ -373,7 +374,18 @@ function renderResult(searchResult) {
     const span = el('span', 'err', `${src} 조회 실패(${msg})`);
     statusLine.appendChild(span);
   });
-  if (statusLine.textContent || Object.keys(errors).length) panel.appendChild(statusLine);
+  const sourceLabels = {
+    police_lost: '경찰청 분실물', police_found: '경찰청 습득물',
+    portal_found: '포털기관 습득물',
+  };
+  const notices = [];
+  (searchResult.search_scopes || []).forEach((scope) => {
+    if (!scope.partial_reason) return;
+    const text = `${sourceLabels[scope.source] || scope.source} 일부 조회: ${scope.partial_reason}`;
+    if (!notices.includes(text)) notices.push(text);
+  });
+  notices.forEach((text) => statusLine.appendChild(el('span', 'notice', text)));
+  if (statusLine.textContent || Object.keys(errors).length || notices.length) panel.appendChild(statusLine);
 
   panel.appendChild(el('h3', null, `추천 습득물 후보 (${(searchResult.candidates || []).length}건)`));
 
