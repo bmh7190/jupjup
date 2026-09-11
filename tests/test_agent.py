@@ -536,12 +536,25 @@ class AgentConfigurationTest(unittest.TestCase):
         self.assertFalse(is_explicit_search_request("분실신고서를 작성해줘"))
 
     def test_similar_lost_report_request_is_a_separate_intent(self) -> None:
-        text = "다른 사람이 등록한 유사한 분실 신고도 확인해줘"
+        requests = [
+            "다른 사람이 등록한 유사한 분실 신고도 확인해줘",
+            "그 등록한 분실물 없나?",
+            "신고된 분실물도 있어?",
+            "등록된 분실 신고 보여줘",
+        ]
 
-        self.assertTrue(is_explicit_similar_lost_report_request(text))
-        self.assertFalse(is_explicit_search_request(text))
+        for text in requests:
+            with self.subTest(text=text):
+                self.assertTrue(is_explicit_similar_lost_report_request(text))
+                self.assertFalse(is_explicit_search_request(text))
         self.assertFalse(
             is_explicit_similar_lost_report_request("분실신고서를 작성해줘")
+        )
+        self.assertFalse(
+            is_explicit_similar_lost_report_request("분실물을 등록하고 싶어")
+        )
+        self.assertFalse(
+            is_explicit_similar_lost_report_request("등록된 분실물은 조회하지 마")
         )
 
     def test_similar_report_request_without_item_has_no_search_context(self) -> None:
@@ -683,7 +696,7 @@ class AgentConfigurationTest(unittest.TestCase):
             thread_id="split-search-intent",
         )
         response = agent.chat(
-            "다른 사람이 등록한 유사한 분실 신고도 확인해줘",
+            "그 등록한 분실물 없나?",
             thread_id="split-search-intent",
         )
 

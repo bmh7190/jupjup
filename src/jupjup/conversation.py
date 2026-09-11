@@ -62,7 +62,16 @@ _SEARCH_CANCEL_PATTERN = re.compile(
 )
 _SIMILAR_LOST_REPORT_CUE = re.compile(r"(?:유사|비슷|다른\s*사람)")
 _LOST_REPORT_RECORD_CUE = re.compile(r"(?:(?:분실\s*)?신고|분실\s*내역)")
-_LOOKUP_ACTION_CUE = re.compile(r"(?:확인|조회|검색|보여|찾아)")
+_REGISTERED_LOST_RECORD_CUE = re.compile(
+    r"(?:(?:(?:등록|신고|게시)(?:된|한)|올라온)\s*"
+    r"(?:분실물|분실\s*신고)|"
+    r"(?:분실물|분실\s*신고).{0,8}"
+    r"(?:(?:등록|신고|게시)(?:된|한)|올라온))"
+)
+_LOOKUP_ACTION_CUE = re.compile(
+    r"(?:확인|조회|검색|보여|찾아|"
+    r"있(?:나|어|나요|을까)|없(?:나|어|나요|을까))"
+)
 _REPORT_CANCEL_PATTERN = re.compile(
     r"(?:신고(?:서|내용|문)?\s*)?(?:작성\s*)?"
     r"(?:하지\s*마|말고|"
@@ -169,9 +178,17 @@ def is_explicit_report_request(text: str) -> bool:
 def is_explicit_similar_lost_report_request(text: str) -> bool:
     """다른 사용자의 유사 분실 신고 조회를 명시적으로 요청했는지 판별한다."""
     normalized = re.sub(r"\s+", " ", text.strip())
-    return bool(
+    if _SEARCH_CANCEL_PATTERN.search(normalized):
+        return False
+    explicit_similar_request = bool(
         _SIMILAR_LOST_REPORT_CUE.search(normalized)
         and _LOST_REPORT_RECORD_CUE.search(normalized)
+    )
+    registered_record_request = bool(
+        _REGISTERED_LOST_RECORD_CUE.search(normalized)
+    )
+    return bool(
+        (explicit_similar_request or registered_record_request)
         and _LOOKUP_ACTION_CUE.search(normalized)
     )
 
