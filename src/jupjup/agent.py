@@ -85,6 +85,29 @@ _SEARCH_REQUEST_PATTERNS = (
     re.compile(r"(?:찾아|조회|검색)\s*(?:줘|해\s*줘|부탁)"),
 )
 
+_LOSS_ACTION_PATTERN = re.compile(r"(?:잃어버|분실(?:했|한|함)|두고|놓고)")
+_NON_ITEM_TOKENS = {
+    "어제",
+    "오늘",
+    "그제",
+    "방금",
+    "아까",
+    "아침",
+    "점심",
+    "저녁",
+    "새벽",
+    "오전",
+    "오후",
+    "밤",
+    "낮",
+    "뭔가",
+    "무언가",
+    "물건",
+    "이거",
+    "그거",
+}
+_NON_ITEM_SUFFIXES = ("에서", "에게", "부터", "까지", "중에", "동안", "에")
+
 
 def _message_content_text(content: Any) -> str:
     """문자열 또는 멀티모달 메시지에서 텍스트만 꺼낸다."""
@@ -123,7 +146,22 @@ def is_explicit_search_request(text: str) -> bool:
     if is_explicit_report_request(text):
         return False
     normalized = re.sub(r"\s+", " ", text.strip())
-    return any(pattern.search(normalized) for pattern in _SEARCH_REQUEST_PATTERNS)
+    if any(pattern.search(normalized) for pattern in _SEARCH_REQUEST_PATTERNS):
+        return True
+
+    # 구어체에서는 목적격 조사 없이 "핸드폰 잃어버렸어"라고 자주 말한다.
+    # 분실 동사 직전 단어가 시간·장소 표현이 아니라면 물품명으로 간주한다.
+    for action in _LOSS_ACTION_PATTERN.finditer(normalized):
+        tokens = re.findall(r"[A-Za-z0-9가-힣]+", normalized[: action.start()])
+        if not tokens:
+            continue
+        token = tokens[-1]
+        if token.endswith(_NON_ITEM_SUFFIXES):
+            continue
+        candidate = re.sub(r"(?:을|를)$", "", token)
+        if candidate and candidate not in _NON_ITEM_TOKENS:
+            return True
+    return False
 
 
 def _search_tool_called_since_latest_user(messages: list[Any]) -> bool:
