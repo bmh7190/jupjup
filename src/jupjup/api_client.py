@@ -223,13 +223,27 @@ class Lost112ApiClient:
         url = f"{BASE_URL}/{definition.service}/{PERIOD_OPERATIONS[definition.source]}"
         seen: set[tuple[str, str | None]] = set()
         token = REQUEST_DEADLINE.set(deadline)
+        category_text = " ".join(value for value in (query.category, query.item_name) if value)
+        upper_code, lower_code = _product_category_codes(category_text)
+        
         try:
             for page in range(1, self.max_pages_per_window + 1):
                 if time.monotonic() >= deadline:
                     raise TimeoutError("전체 조회 시간 제한")
-                root = self._request_xml(url, {"serviceKey": self.service_key,
-                    "START_YMD": start.strftime("%Y%m%d"), "END_YMD": end.strftime("%Y%m%d"),
-                    "pageNo": str(page), "numOfRows": str(self.page_size)})
+                
+                params = {
+                    "serviceKey": self.service_key,
+                    "START_YMD": start.strftime("%Y%m%d"),
+                    "END_YMD": end.strftime("%Y%m%d"),
+                    "pageNo": str(page),
+                    "numOfRows": str(self.page_size)
+                }
+                if upper_code:
+                    params["PRDT_CL_CD_01"] = upper_code
+                if lower_code:
+                    params["PRDT_CL_CD_02"] = lower_code
+                    
+                root = self._request_xml(url, params)
                 self._ensure_success(root, definition.source)
                 result.total_count = scope.total_count = _to_int(_text(root, "totalCount"))
                 records = [self._parse_record(item, definition) for item in root.findall(".//item")]
