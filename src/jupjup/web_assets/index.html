@@ -87,9 +87,10 @@
 
   .panel {
     width: 100%;
-    max-width: 760px;
+    max-width: min(760px, calc(100% - 42px - 24px));
     align-self: flex-start;
     margin-left: 42px;
+    margin-right: 24px;
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 12px;
