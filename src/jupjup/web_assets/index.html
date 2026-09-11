@@ -175,6 +175,35 @@
   #send-btn:disabled { background: #c7c9f5; cursor: not-allowed; }
   #demo-btn { background: #f0f1f6; color: var(--text); }
   .empty-hint { color: var(--muted); font-size: 13px; text-align: center; margin-top: 40px; }
+
+  .report { width: min(960px, 100%); align-self: center; background: white; border: 1px solid var(--border); border-radius: 16px; padding: 30px; }
+  .report-top { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; border-bottom:1px solid var(--border); padding-bottom:22px; }
+  .report-kicker { font-size:11px; letter-spacing:1.5px; color:var(--brand); font-weight:700; }
+  .report h2 { font-size:22px; margin:8px 0; letter-spacing:-.6px; }
+  .report p { font-size:13px; line-height:1.7; color:var(--muted); margin:0; }
+  .report-badge { white-space:nowrap; padding:6px 10px; background:#f3f4f8; color:#646977; border-radius:6px; font-size:11px; }
+  .report-layout { display:grid; grid-template-columns:minmax(0,1.5fr) minmax(230px,1fr); gap:32px; padding-top:24px; }
+  .report h3 { font-size:14px; margin:0 0 16px; }
+  .report-fields { display:grid; grid-template-columns:1fr 1fr; margin:0; gap:0 24px; }
+  .report-field { border-bottom:1px solid #edf0f5; padding:13px 0; min-width:0; }
+  .report-field.wide { grid-column:1 / -1; }
+  .report dt { font-size:11px; color:var(--muted); margin-bottom:7px; }
+  .report dd { margin:0; font-size:14px; line-height:1.6; overflow-wrap:anywhere; }
+  .report dd.missing { color:#9b721f; font-size:12px; }
+  .report-aside { background:#f8f9fc; padding:20px; border-radius:8px; }
+  .report-aside h3:not(:first-child) { margin-top:24px; }
+  .report-list { margin:0; padding-left:18px; font-size:12px; line-height:1.8; color:#596174; }
+  .report-list li + li { margin-top:6px; }
+  .report-missing { display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 14px; }
+  .report-missing span { font-size:11px; background:#fff; border:1px solid #e5e7ee; padding:5px 8px; border-radius:4px; }
+  .report-actions { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding-top:24px; margin-top:24px; border-top:1px solid var(--border); }
+  .report button,.report a { font:inherit; font-size:12px; cursor:pointer; border-radius:6px; padding:10px 14px; text-decoration:none; border:1px solid var(--border); background:white; color:var(--text); }
+  .report .primary { background:var(--brand); color:white; border-color:var(--brand); }
+  .report .text-link { border:0; color:var(--muted); }
+  .report details { margin-top:20px; font-size:12px; color:var(--muted); }
+  .report summary { cursor:pointer; padding:8px 0; }
+  button:focus-visible,a:focus-visible,summary:focus-visible { outline:2px solid var(--brand); outline-offset:3px; }
+  @media(max-width:680px) { main { padding:12px; } .report { padding:20px; } .report-layout { grid-template-columns:1fr; gap:24px; } .report-top { flex-direction:column; } .panel { margin-left:0; } footer { flex-wrap:wrap; padding:12px; } footer input { flex-basis:100%; } footer button { min-height:40px; } }
 </style>
 </head>
 <body>
@@ -265,6 +294,60 @@ function fieldChips(query) {
     chips.push('특징: ' + query.features.join(', '));
   }
   return chips;
+}
+
+
+function renderReport(draft) {
+  const section = el('section', 'report');
+  section.setAttribute('aria-label', '분실신고서 초안');
+  const top = el('div', 'report-top');
+  const title = el('div');
+  title.append(el('div', 'report-kicker', 'LOST ITEM REPORT'), el('h2', null, draft.title || '분실신고서 초안'), el('p', null, '입력한 내용을 정리했어요. 확인 후 경찰민원24에 옮겨 작성해 주세요.'));
+  top.append(title, el('span', 'report-badge', '초안 · 제출 전'));
+  section.append(top);
+  const layout = el('div', 'report-layout');
+  const documentPart = el('div');
+  documentPart.append(el('h3', null, '01  분실 정보'));
+  const fields = el('dl', 'report-fields');
+  const entries = [['분실 물품',draft.item_name],['분류',draft.category],['분실 날짜',draft.lost_date],['분실 시간',draft.lost_time],['분실 장소',[draft.region,draft.lost_place].filter(Boolean).join(' '),true],['색상',draft.color],['브랜드',draft.brand],['크기',draft.size],['수량',draft.quantity == null ? null : draft.quantity+'개'],['식별 특징',(draft.features || []).join(', '),true],['분실 경위',draft.circumstances,true]];
+  entries.forEach(([label,value,wide]) => {
+    const item = el('div','report-field'+(wide?' wide':''));
+    item.append(el('dt',null,label),el('dd',value?'':'missing',value || '확인 필요'));
+    fields.append(item);
+  });
+  documentPart.append(fields); layout.append(documentPart);
+  const aside = el('aside','report-aside');
+  aside.append(el('h3',null,'02  작성 전 확인'));
+  const essential = draft.missing_essential_fields || [];
+  const recommended = draft.missing_recommended_fields || [];
+  aside.append(el('p',null,essential.length ? '필수 정보 '+essential.length+'개를 먼저 확인해 주세요.' : (draft.ready_for_user_review ? '기본 정보가 준비됐어요. 내용을 검토해 주세요.' : '신고 가능 여부와 안내사항을 먼저 확인해 주세요.')));
+  const missing = el('div','report-missing');
+  essential.forEach(t=>missing.append(el('span',null,'필수 · '+t)));
+  recommended.forEach(t=>missing.append(el('span',null,t)));
+  aside.append(missing);
+  if (draft.next_question) {
+    const edit = el('button',null,'대화로 정보 보완하기'); edit.type='button';
+    edit.onclick=()=>{ input.value='분실신고서 내용을 보완해서 다시 작성해줘. '; input.focus(); addMessage('bot',draft.next_question); };
+    aside.append(edit);
+  }
+  if ((draft.improvement_tips || []).length) {
+    aside.append(el('h3',null,'더 찾기 쉬운 신고서'));
+    const tips = el('ul','report-list'); draft.improvement_tips.forEach(t=>tips.append(el('li',null,t))); aside.append(tips);
+  }
+  layout.append(aside); section.append(layout);
+  const actions=el('div','report-actions');
+  try {
+    const url = new URL(draft.official_report_url);
+    if (url.protocol === 'https:' && url.hostname === 'minwon24.police.go.kr') {
+      const link = el('a', 'primary', '경찰민원24에서 작성 ↗');
+      link.href = url.href; link.target = '_blank'; link.rel = 'noopener noreferrer';
+      actions.append(link);
+    }
+  } catch {}
+  section.append(actions);
+  const notices=el('details'); notices.append(el('summary',null,'제출 전 안내사항'));
+  const list=el('ul','report-list'); (draft.notices||[]).forEach(t=>list.append(el('li',null,t))); notices.append(list); section.append(notices);
+  chat.append(section); section.scrollIntoView({block:'start',behavior:'smooth'});
 }
 
 function renderResult(searchResult) {
@@ -371,7 +454,7 @@ async function refreshStatus() {
 async function send(endpoint, text) {
   if (text) addMessage('user', text);
   input.value = '';
-  sendBtn.disabled = true;
+  sendBtn.disabled = true; demoBtn.disabled = true;
   addTyping();
   try {
     const res = await fetch(endpoint, {
@@ -382,7 +465,10 @@ async function send(endpoint, text) {
     const data = await res.json();
     threadId = data.thread_id;
     removeTyping();
-    if (data.response.search_result) {
+    if (data.response.report_draft) {
+      renderReport(data.response.report_draft);
+      if (data.response.search_result) renderResult(data.response.search_result);
+    } else if (data.response.search_result) {
       // 검색 결과(카드 패널)가 있으면 모델이 만든 설명 텍스트는 생략하고
       // 카드 패널만 보여준다.
       renderResult(data.response.search_result);
@@ -393,7 +479,7 @@ async function send(endpoint, text) {
     removeTyping();
     addMessage('bot', '서버와 통신 중 오류가 발생했습니다: ' + e);
   } finally {
-    sendBtn.disabled = false;
+    sendBtn.disabled = false; demoBtn.disabled = false;
     input.focus();
   }
 }
@@ -403,6 +489,7 @@ sendBtn.addEventListener('click', () => {
   if (!text) return;
   send('/api/chat', text);
 });
+
 
 demoBtn.addEventListener('click', () => {
   send('/api/demo', null);
