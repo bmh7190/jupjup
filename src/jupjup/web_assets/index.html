@@ -86,6 +86,7 @@
   .row.bot .bubble { background: var(--bubble-bot); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
 
   .panel {
+    width: 100%;
     max-width: 760px;
     align-self: flex-start;
     margin-left: 42px;
@@ -115,10 +116,11 @@
     flex-direction: column;
     gap: 6px;
     background: #fbfbfe;
+    max-width: 260px;
   }
   .card .thumb {
     width: 100%;
-    height: 100%;
+    height: 160px;
     border-radius: 8px;
     background: #eef0f5 center/cover no-repeat;
     display: flex; align-items: center; justify-content: center;
@@ -126,7 +128,7 @@
     font-size: 12px;
     overflow: hidden;
   }
-  .card .thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .card .thumb img { width: 100%; height: 100%; object-fit: contain; }
   .card .title-row { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
   .card .title { font-weight: 600; font-size: 13px; }
   .card .source-badge {
@@ -380,9 +382,12 @@ async function send(endpoint, text) {
     const data = await res.json();
     threadId = data.thread_id;
     removeTyping();
-    addMessage('bot', data.response.message);
     if (data.response.search_result) {
+      // 검색 결과(카드 패널)가 있으면 모델이 만든 설명 텍스트는 생략하고
+      // 카드 패널만 보여준다.
       renderResult(data.response.search_result);
+    } else {
+      addMessage('bot', data.response.message);
     }
   } catch (e) {
     removeTyping();
@@ -403,8 +408,13 @@ demoBtn.addEventListener('click', () => {
   send('/api/demo', null);
 });
 
+// 한글/일본어 등 IME로 조합 중일 때 Enter를 누르면 조합이 끝나기 전에
+// 전송돼서 마지막 글자가 입력창에 남는 문제가 있었다. 조합 중에는 무시한다.
+let isComposing = false;
+input.addEventListener('compositionstart', () => { isComposing = true; });
+input.addEventListener('compositionend', () => { isComposing = false; });
 input.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') sendBtn.click();
+  if (e.key === 'Enter' && !isComposing && !e.isComposing) sendBtn.click();
 });
 
 addMessage('bot', '안녕하세요! 잃어버린 물건을 설명해주세요. 예: "어제 저녁 강남역에서 검은색 카드지갑을 잃어버렸어"\n(API 키 없이 화면만 보려면 "데모 모드" 버튼을 눌러보세요.)');
