@@ -14,7 +14,7 @@ from .agent import JupJupChatAgent, JupJupChatResponse
 from .api_client import Lost112ApiClient
 from .config import Settings
 from .demo import run_demo
-from .models import AgentResult
+from .models import AgentResult, LostReportDraft
 from .service import JupJupAgentService
 from .vision import VisionMatcher
 
@@ -58,6 +58,20 @@ def print_result(result: AgentResult) -> None:
             print(f"- {record.item_name} / {record.event_date or '-'} / {record.event_place or '-'}")
 
 
+def print_report_draft(draft: LostReportDraft) -> None:
+    print("\n[분실신고 작성 도움]")
+    print(draft.copy_text)
+    if draft.missing_essential_fields:
+        print("\n필수 확인: " + ", ".join(draft.missing_essential_fields))
+    if draft.missing_recommended_fields:
+        print("보완 권장: " + ", ".join(draft.missing_recommended_fields))
+    for tip in draft.improvement_tips:
+        print(f"- 작성 팁: {tip}")
+    for notice in draft.notices:
+        print(f"- 확인: {notice}")
+    print(f"공식 신고 안내: {draft.official_report_url}")
+
+
 def print_chat_response(response: JupJupChatResponse, *, as_json: bool) -> None:
     if as_json:
         print(response.model_dump_json(indent=2))
@@ -65,6 +79,8 @@ def print_chat_response(response: JupJupChatResponse, *, as_json: bool) -> None:
     print(f"\n줍줍이: {response.message}")
     if response.search_result:
         print_result(response.search_result)
+    if response.report_draft:
+        print_report_draft(response.report_draft)
 
 
 def run_chat(agent: JupJupChatAgent, initial_text: str | None, *, as_json: bool) -> int:

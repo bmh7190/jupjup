@@ -20,7 +20,8 @@ from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import BaseModel
 
-from .models import AgentResult, LostItemQuery
+from .models import AgentResult, LostItemQuery, LostReportDraft
+from .report import build_lost_report_draft
 from .service import JupJupAgentService
 
 
@@ -28,9 +29,16 @@ SYSTEM_PROMPT = """당신은 분실물 찾기를 돕는 '줍줍이'입니다.
 사용자와 한국어로 짧고 명확하게 대화하세요.
 
 다음 원칙을 지키세요.
+- 먼저 사용자의 의도를 습득물 조회와 분실신고 작성 도움으로 구분하세요.
 - 사용자의 설명에서 물품명, 분실일, 장소, 지역, 색상, 브랜드, 특징을 파악하세요.
-- 물품명을 알 수 없으면 검색하지 말고 먼저 물어보세요.
-- 물품명을 알 수 있으면 search_lost112_candidates Tool로 실제 데이터를 조회하세요.
+- 사용자가 분실신고 작성, 문장 정리, 누락 확인을 요청하면 prepare_lost_report_draft Tool을 호출하세요.
+- 신고서 작성만 요청한 경우에는 search_lost112_candidates Tool을 호출하지 마세요.
+- 신고서 작성 요청에서는 물품명, 분실 날짜, 구체적인 장소가 없으면 초안의 next_question으로 먼저 보완하세요.
+- prepare_lost_report_draft 결과가 준비되면 복사용 문장, 누락 항목, 개선 제안, 주의사항을 안내하세요.
+- 이 서비스는 신고를 자동 제출하지 않습니다. 제출됐다고 말하지 말고 경찰민원24 공식 링크를 안내하세요.
+- 도난은 분실물 신고와 구분하고, 자동차번호판은 방문 신고가 필요하다는 Tool 결과를 따르세요.
+- 조회 요청에서 물품명을 알 수 없으면 검색하지 말고 먼저 물어보세요.
+- 조회 요청에서 물품명을 알 수 있으면 search_lost112_candidates Tool로 실제 데이터를 조회하세요.
 - 사용자가 제공하지 않은 조건은 추측해서 Tool 인자에 넣지 마세요.
 - 조회하지 않은 결과를 찾았다고 말하지 마세요.
 - 습득물 후보와 다른 사람이 등록한 유사 분실 신고를 구분하세요.
@@ -45,6 +53,7 @@ class JupJupChatResponse(BaseModel):
 
     message: str
     search_result: AgentResult | None = None
+    report_draft: LostReportDraft | None = None
 
 
 def _result_for_model(result: AgentResult) -> str:
@@ -119,6 +128,46 @@ def create_lost112_search_tool(service: JupJupAgentService) -> BaseTool:
     return search_lost112_candidates
 
 
+def create_lost_report_tool() -> BaseTool:
+    """분실신고 내용을 점검하고 사용자가 검토할 초안을 만드는 Tool."""
+
+    @tool("prepare_lost_report_draft", response_format="content_and_artifact")
+    def prepare_lost_report_draft(
+        item_name: str | None = None,
+        category: str | None = None,
+        lost_date: date | None = None,
+        lost_time: str | None = None,
+        lost_place: str | None = None,
+        region: str | None = None,
+        color: str | None = None,
+        brand: str | None = None,
+        features: list[str] | None = None,
+        circumstances: str | None = None,
+        incident_type: str = "분실",
+    ) -> tuple[str, LostReportDraft]:
+        """분실신고 초안, 누락 항목, 개선 방법과 공식 접수 링크를 반환한다.
+
+        신고를 제출하거나 경찰민원24 계정에 접근하지 않는다. 대화에서 확인된
+        사실만 전달하고, 모르는 값은 비워 둔다.
+        """
+        draft = build_lost_report_draft(
+            item_name=item_name,
+            category=category,
+            lost_date=lost_date,
+            lost_time=lost_time,
+            lost_place=lost_place,
+            region=region,
+            color=color,
+            brand=brand,
+            features=features,
+            circumstances=circumstances,
+            incident_type=incident_type,
+        )
+        return draft.model_dump_json(exclude_none=True), draft
+
+    return prepare_lost_report_draft
+
+
 def build_middlewares() -> list[Any]:
     """입출력 개인정보 보호와 Agent/Tool 과호출 방지 정책."""
     return [
@@ -148,12 +197,15 @@ def build_middlewares() -> list[Any]:
         ),
         ToolRetryMiddleware(
             max_retries=1,
-            tools=["search_lost112_candidates"],
+            tools=["search_lost112_candidates", "prepare_lost_report_draft"],
             on_failure="continue",
             initial_delay=0.5,
         ),
         ToolCallLimitMiddleware(
             tool_name="search_lost112_candidates", run_limit=1
+        ),
+        ToolCallLimitMiddleware(
+            tool_name="prepare_lost_report_draft", run_limit=1
         ),
         ModelCallLimitMiddleware(run_limit=4, exit_behavior="end"),
     ]
@@ -191,10 +243,11 @@ class JupJupChatAgent:
             model = ChatOpenAI(model=model_name, api_key=api_key, temperature=0)
 
         self.search_tool = create_lost112_search_tool(service)
+        self.report_tool = create_lost_report_tool()
         self.checkpointer = InMemorySaver()
         self.graph = create_agent(
             model=model,
-            tools=[self.search_tool],
+            tools=[self.search_tool, self.report_tool],
             system_prompt=SYSTEM_PROMPT,
             middleware=build_middlewares(),
             checkpointer=self.checkpointer,
@@ -210,6 +263,7 @@ class JupJupChatAgent:
 
         final_message: AIMessage | None = None
         search_result: AgentResult | None = None
+        report_draft: LostReportDraft | None = None
         for message in state["messages"]:
             if isinstance(message, AIMessage):
                 final_message = message
@@ -219,7 +273,15 @@ class JupJupChatAgent:
                 and isinstance(message.artifact, AgentResult)
             ):
                 search_result = message.artifact
+            elif (
+                isinstance(message, ToolMessage)
+                and message.name == self.report_tool.name
+                and isinstance(message.artifact, LostReportDraft)
+            ):
+                report_draft = message.artifact
 
         return JupJupChatResponse(
-            message=_message_text(final_message), search_result=search_result
+            message=_message_text(final_message),
+            search_result=search_result,
+            report_draft=report_draft,
         )
