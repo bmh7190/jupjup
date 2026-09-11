@@ -15,9 +15,19 @@ dependencies = [
   "python-dotenv>=1.0,<2",
 ]
 
+[project.optional-dependencies]
+web = [
+  "fastapi>=0.110,<1",
+  "uvicorn[standard]>=0.29,<1",
+]
+
 [project.scripts]
 jupjup = "jupjup.cli:main"
+jupjup-web = "jupjup.web:run"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+jupjup = ["web_assets/*.html"]
 
