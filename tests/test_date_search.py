@@ -1,5 +1,6 @@
 from datetime import date
 import unittest
+import urllib.error
 import xml.etree.ElementTree as ET
 from unittest.mock import patch
 
@@ -150,6 +151,44 @@ class DateSearchTest(unittest.TestCase):
             '전체 조회 시간 제한',
             responses[0].search_scopes[0].partial_reason,
         )
+        with patch('jupjup.api_client.API_DEFINITIONS', (API_DEFINITIONS[1],)), patch.object(
+            client, '_request_xml', side_effect=request
+        ):
+            result = JupJupAgentService(client).run(
+                LostItemQuery(item_name='지갑', lost_date=date(2026,3,14))
+            )
+        self.assertEqual(result.source_counts, {'경찰청 습득물': 2})
+
+    def test_dated_search_distinguishes_zero_results_from_total_failure(self):
+        client=Lost112ApiClient('test',detail_limit=0)
+        definition=(API_DEFINITIONS[1],)
+
+        with patch('jupjup.api_client.API_DEFINITIONS',definition), patch.object(
+            client,'_request_xml',return_value=xml([])
+        ):
+            zero_result=JupJupAgentService(client).run(
+                LostItemQuery(item_name='지갑',lost_date=date(2026,3,14))
+            )
+
+        self.assertEqual(zero_result.source_counts, {'경찰청 습득물': 0})
+        self.assertFalse(zero_result.errors)
+        self.assertTrue(zero_result.search_scopes[0].complete)
+
+        for failure in (
+            urllib.error.URLError('upstream down'),
+            TimeoutError('request timeout'),
+        ):
+            with self.subTest(failure=type(failure).__name__), patch(
+                'jupjup.api_client.API_DEFINITIONS',definition
+            ), patch.object(client,'_request_xml',side_effect=failure):
+                failed=JupJupAgentService(client).run(
+                    LostItemQuery(item_name='지갑',lost_date=date(2026,3,14))
+                )
+
+            self.assertEqual(failed.source_counts, {})
+            self.assertIn('경찰청 습득물', failed.errors)
+            self.assertTrue(failed.search_scopes)
+            self.assertTrue(all(scope.pages_completed == 0 for scope in failed.search_scopes))
 
     def test_timeout_without_any_records_remains_an_error(self):
         client=Lost112ApiClient('test',detail_limit=0)

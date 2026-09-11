@@ -11,7 +11,7 @@ from langchain.agents.middleware import (
     ToolRetryMiddleware,
 )
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from pydantic import PrivateAttr
 
@@ -21,10 +21,14 @@ from jupjup.agent import (
     build_middlewares,
     create_lost112_search_tool,
     create_lost_report_tool,
+    has_search_item_context,
     is_explicit_report_request,
     is_explicit_search_request,
+    is_report_workflow_turn,
 )
+from jupjup.conversation import report_context_from_messages
 from jupjup.models import AgentResult, LostItemQuery
+from jupjup.report import build_lost_report_draft
 
 
 class StubService:
@@ -199,6 +203,125 @@ class ScriptedReportModel(BaseChatModel):
         return ChatResult(generations=[ChatGeneration(message=message)])
 
 
+class ReportConversationModel(BaseChatModel):
+    """현재 턴에 공개된 Tool만 사용해 신고서 연속 수정을 재현한다."""
+
+    _tool_names: set[str] = PrivateAttr(default_factory=set)
+    _tool_choices: list[str | None] = PrivateAttr(default_factory=list)
+
+    @property
+    def _llm_type(self) -> str:
+        return "report-conversation-model"
+
+    def bind_tools(
+        self, tools: Any, *, tool_choice: str | None = None, **kwargs: Any
+    ) -> BaseChatModel:
+        self._tool_names = {
+            tool.name if hasattr(tool, "name") else tool.get("name")
+            for tool in tools
+        }
+        self._tool_choices.append(tool_choice)
+        return self
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: Any = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        if isinstance(messages[-1], ToolMessage):
+            return ChatResult(
+                generations=[ChatGeneration(message=AIMessage(content="초안을 갱신했습니다."))]
+            )
+
+        user_text = next(
+            message.content
+            for message in reversed(messages)
+            if isinstance(message, HumanMessage)
+        )
+        if "prepare_lost_report_draft" not in self._tool_names:
+            return ChatResult(
+                generations=[ChatGeneration(message=AIMessage(content="일반 답변입니다."))]
+            )
+
+        args: dict[str, Any]
+        if "휴대폰" in user_text:
+            args = {"item_name": "휴대폰"}
+        elif "시간" in user_text and "빼" in user_text:
+            args = {"lost_time": None}
+        elif "12cm" in user_text:
+            args = {"size": "가로 12cm"}
+        elif "작성" in user_text:
+            args = {"incident_type": "분실"}
+        elif "파란색" in user_text:
+            args = {
+                "item_name": "지갑",
+                "lost_date": "2026-09-10",
+                "lost_place": "강남역 2번 출구",
+                "color": "파란색",
+                "size": "가로 11cm",
+            }
+        else:
+            args = {
+                "item_name": "지갑",
+                "lost_date": "2026-09-10",
+                "lost_time": "18:00",
+                "lost_place": "강남역 2번 출구",
+            }
+        return ChatResult(
+            generations=[
+                ChatGeneration(
+                    message=AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "prepare_lost_report_draft",
+                                "args": args,
+                                "id": f"report-conversation-{len(messages)}",
+                            }
+                        ],
+                    )
+                )
+            ]
+        )
+
+
+class BlankSearchModel(BaseChatModel):
+    """숨긴 Tool을 임의 호출해도 빈 검색이 실행되지 않는지 확인한다."""
+
+    @property
+    def _llm_type(self) -> str:
+        return "blank-search-model"
+
+    def bind_tools(
+        self, tools: Any, *, tool_choice: str | None = None, **kwargs: Any
+    ) -> BaseChatModel:
+        return self
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: Any = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        if isinstance(messages[-1], ToolMessage):
+            message = AIMessage(content="어떤 물품을 찾을까요?")
+        else:
+            message = AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "search_lost112_candidates",
+                        "args": {"item_name": ""},
+                        "id": "blank-search",
+                    }
+                ],
+            )
+        return ChatResult(generations=[ChatGeneration(message=message)])
+
+
 class AgentConfigurationTest(unittest.TestCase):
     def test_agent_returns_report_draft_artifact(self) -> None:
         agent = JupJupChatAgent(StubService(), model=ScriptedReportModel())  # type: ignore[arg-type]
@@ -230,6 +353,93 @@ class AgentConfigurationTest(unittest.TestCase):
         self.assertFalse(is_explicit_report_request("분실 신고는 어디에서 해?"))
         self.assertTrue(is_explicit_report_request("분실신고서 초안을 써줘"))
         self.assertTrue(is_explicit_report_request("빠진 항목이 있는지 확인해줘"))
+        self.assertFalse(
+            is_explicit_report_request("신고서는 작성하지 말고 습득물만 찾아줘")
+        )
+
+    def test_report_workflow_keeps_only_report_follow_up_turns_active(self) -> None:
+        start = HumanMessage(content="분실신고서 작성 도와줘")
+        question = AIMessage(content="신고서에 넣을 물품, 날짜, 장소를 알려주세요.")
+
+        self.assertTrue(
+            is_report_workflow_turn(
+                [
+                    start,
+                    question,
+                    HumanMessage(
+                        content="어제 강남역에서 지갑을 잃어버렸어"
+                    ),
+                ]
+            )
+        )
+        self.assertTrue(
+            is_report_workflow_turn(
+                [start, question, HumanMessage(content="고마워. 파란색으로 수정해줘")]
+            )
+        )
+        self.assertFalse(
+            is_report_workflow_turn(
+                [start, question, HumanMessage(content="오늘 날씨 어때?")]
+            )
+        )
+        self.assertFalse(
+            is_report_workflow_turn(
+                [start, question, HumanMessage(content="그만하고 지갑을 찾아줘")]
+            )
+        )
+        self.assertFalse(
+            is_report_workflow_turn(
+                [
+                    start,
+                    question,
+                    HumanMessage(content="신고서 작성하지 마. 취소할게"),
+                    AIMessage(content="취소했습니다."),
+                    HumanMessage(content="파란색이야"),
+                ]
+            )
+        )
+        self.assertFalse(
+            is_report_workflow_turn([HumanMessage(content="파란색으로 수정해줘")])
+        )
+
+    def test_report_follow_up_updates_draft_in_same_thread_only(self) -> None:
+        model = ReportConversationModel()
+        agent = JupJupChatAgent(StubService(), model=model)  # type: ignore[arg-type]
+
+        missing = agent.chat("분실신고서 작성 도와줘", thread_id="report-flow")
+        completed = agent.chat(
+            "지갑이고 2026년 9월 10일에 강남역 2번 출구에서 잃어버렸어",
+            thread_id="report-flow",
+        )
+        edited = agent.chat(
+            "검정이 아니라 파란색이고 가로 11cm야. 수정해줘",
+            thread_id="report-flow",
+        )
+        unrelated = agent.chat("오늘 날씨 어때?", thread_id="report-flow")
+        isolated = agent.chat("파란색으로 수정해줘", thread_id="other-thread")
+
+        self.assertIsNotNone(missing.report_draft)
+        self.assertFalse(missing.report_draft.ready_for_user_review)  # type: ignore[union-attr]
+        self.assertTrue(completed.report_draft.ready_for_user_review)  # type: ignore[union-attr]
+        self.assertEqual(edited.report_draft.color, "파란색")  # type: ignore[union-attr]
+        self.assertEqual(edited.report_draft.size, "가로 11cm")  # type: ignore[union-attr]
+        self.assertEqual(edited.report_draft.lost_time, "18:00")  # type: ignore[union-attr]
+        self.assertNotIn("search_lost112_candidates", model._tool_choices)
+        self.assertIsNone(unrelated.report_draft)
+        self.assertIsNone(isolated.report_draft)
+
+        cleared = agent.chat("분실 시간은 빼줘", thread_id="report-flow")
+        after_clear = agent.chat("크기는 가로 12cm로 수정해줘", thread_id="report-flow")
+        new_incident = agent.chat(
+            "이번엔 휴대폰 신고서 작성 도와줘", thread_id="report-flow"
+        )
+
+        self.assertIsNone(cleared.report_draft.lost_time)  # type: ignore[union-attr]
+        self.assertIsNone(after_clear.report_draft.lost_time)  # type: ignore[union-attr]
+        self.assertEqual(after_clear.report_draft.size, "가로 12cm")  # type: ignore[union-attr]
+        self.assertEqual(new_incident.report_draft.item_name, "휴대폰")  # type: ignore[union-attr]
+        self.assertIsNone(new_incident.report_draft.lost_date)  # type: ignore[union-attr]
+        self.assertIsNone(new_incident.report_draft.lost_place)  # type: ignore[union-attr]
 
     def test_search_request_requires_an_explicit_item_or_action(self) -> None:
         self.assertTrue(is_explicit_search_request("강남역에서 카드지갑을 잃어버렸어"))
@@ -240,6 +450,112 @@ class AgentConfigurationTest(unittest.TestCase):
         self.assertFalse(is_explicit_search_request("어제 저녁에 잃어버렸어요"))
         self.assertFalse(is_explicit_search_request("뭔가 잃어버렸어요"))
         self.assertFalse(is_explicit_search_request("분실신고서를 작성해줘"))
+
+    def test_search_item_context_uses_sentence_structure_and_thread_history(self) -> None:
+        self.assertFalse(
+            has_search_item_context([HumanMessage(content="기능 검증용 대화야. 찾아줘")])
+        )
+        self.assertTrue(
+            has_search_item_context(
+                [HumanMessage(content="파란 텀블러야. 강남역에서 잃어버렸어")]
+            )
+        )
+        self.assertTrue(
+            has_search_item_context(
+                [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "search_lost112_candidates",
+                                "args": {"item_name": "키링"},
+                                "id": "previous-search",
+                            }
+                        ],
+                    ),
+                    ToolMessage(
+                        content="조회 완료",
+                        tool_call_id="previous-search",
+                        name="search_lost112_candidates",
+                        artifact=AgentResult(
+                            query=LostItemQuery(item_name="키링", search_ready=True),
+                            candidates=[],
+                            similar_lost_reports=[],
+                            source_counts={"경찰청 습득물": 0},
+                        ).model_dump(mode="json"),
+                    ),
+                    HumanMessage(content="같은 조건으로 다시 찾아줘"),
+                ]
+            )
+        )
+
+    def test_bare_search_request_asks_before_forcing_tool(self) -> None:
+        service = StubService()
+        model = ToolChoiceAwareModel()
+        agent = JupJupChatAgent(service, model=model)  # type: ignore[arg-type]
+
+        response = agent.chat("찾아줘", thread_id="bare-search")
+
+        self.assertEqual(response.message, "검색을 완료했습니다.")
+        self.assertIsNone(response.search_result)
+        self.assertIsNone(service.received)
+        self.assertNotIn("search_lost112_candidates", model._tool_choices)
+
+    def test_invented_blank_search_call_is_blocked_before_service(self) -> None:
+        service = StubService()
+        agent = JupJupChatAgent(service, model=BlankSearchModel())  # type: ignore[arg-type]
+
+        response = agent.chat("찾아줘", thread_id="blocked-blank-search")
+
+        self.assertEqual(response.message, "어떤 물품을 찾을까요?")
+        self.assertIsNone(response.search_result)
+        self.assertIsNone(service.received)
+
+    def test_report_context_uses_only_successful_tool_call_arguments(self) -> None:
+        draft = build_lost_report_draft(
+            item_name="지갑",
+            lost_date=date(2026, 9, 10),
+            lost_time="18:00",
+            lost_place="강남역",
+        )
+        messages = [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "prepare_lost_report_draft",
+                        "args": {"item_name": "지갑", "lost_time": "18:00"},
+                        "id": "successful-report",
+                    }
+                ],
+            ),
+            ToolMessage(
+                content="완료",
+                tool_call_id="successful-report",
+                name="prepare_lost_report_draft",
+                artifact=draft.model_dump(mode="json"),
+            ),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "prepare_lost_report_draft",
+                        "args": {"lost_time": None, "color": "추측값"},
+                        "id": "failed-report",
+                    }
+                ],
+            ),
+            ToolMessage(
+                content="검증 실패",
+                tool_call_id="failed-report",
+                name="prepare_lost_report_draft",
+            ),
+        ]
+
+        context = report_context_from_messages(messages)
+
+        self.assertEqual(context["lost_time"], "18:00")
+        self.assertNotIn("color", context)
 
     def test_explicit_item_loss_forces_search_without_confirmation(self) -> None:
         service = StubService()
