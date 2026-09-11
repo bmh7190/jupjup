@@ -1,12 +1,9 @@
-"""터미널 전용이던 채팅을 브라우저에서 확인할 수 있게 하는 최소 가시화 서버.
-
-기존 Agent 로직(agent.py, service.py 등)은 전혀 바꾸지 않고,
-`JupJupChatAgent.chat()` 호출 결과를 그대로 JSON으로 감싸서 보여주기만 한다.
-"""
+"""Agent 결과에서 사용자용 필드만 공개하는 FastAPI 채팅 서버."""
 
 from __future__ import annotations
 
 import logging
+from datetime import date
 from pathlib import Path
 from uuid import uuid4
 
@@ -18,6 +15,7 @@ from .agent import JupJupChatAgent, JupJupChatResponse
 from .api_client import Lost112ApiClient
 from .config import Settings
 from .demo import run_demo
+from .models import LostItemQuery, LostReportDraft, RecordSource, SearchRecord
 from .service import JupJupAgentService
 
 logger = logging.getLogger(__name__)
@@ -63,24 +61,77 @@ class ChatRequest(BaseModel):
     thread_id: str | None = None
 
 
+class WebSearchRecord(BaseModel):
+    """습득물 후보에서 사용자 확인에 필요한 공개 필드."""
+
+    source: RecordSource
+    item_name: str
+    category: str | None = None
+    event_date: date | None = None
+    event_time: str | None = None
+    event_place: str | None = None
+    custody_place: str | None = None
+    color: str | None = None
+    image_url: str | None = None
+    organization_name: str | None = None
+    status: str | None = None
+    detail_url: str | None = None
+
+    @classmethod
+    def from_record(cls, record: SearchRecord) -> "WebSearchRecord":
+        return cls.model_validate(record.model_dump())
+
+
+class WebCandidate(BaseModel):
+    """점수와 판정 근거를 제외한 사용자용 후보."""
+
+    record: WebSearchRecord
+
+
+class WebSearchResult(BaseModel):
+    query: LostItemQuery
+    candidates: list[WebCandidate]
+    source_counts: dict[str, int]
+    errors: dict[str, str]
+
+
+class WebChatResponse(BaseModel):
+    message: str
+    search_result: WebSearchResult | None = None
+    report_draft: LostReportDraft | None = None
+
+
 class ChatReply(BaseModel):
     thread_id: str
-    response: JupJupChatResponse
+    response: WebChatResponse
 
 
-def _response_for_web_chat(response: JupJupChatResponse) -> JupJupChatResponse:
+def _response_for_web_chat(response: JupJupChatResponse) -> WebChatResponse:
     """웹 채팅에는 사용자 판단에 필요한 검색 결과만 노출한다.
 
-    검색 범위와 유사 분실 신고는 내부 검색·진단에는 유지하되, 습득물 후보와
-    혼동되지 않도록 브라우저 응답에서 숨긴다.
+    검색 점수·신뢰도·일치 근거와 내부 진단은 후보 정렬에만 유지한다.
     """
     if response.search_result is None:
-        return response
+        return WebChatResponse(
+            message=response.message,
+            report_draft=response.report_draft,
+        )
 
-    search_result = response.search_result.model_copy(
-        update={"search_scopes": [], "similar_lost_reports": []}
+    result = response.search_result
+    search_result = WebSearchResult(
+        query=result.query,
+        candidates=[
+            WebCandidate(record=WebSearchRecord.from_record(candidate.record))
+            for candidate in result.candidates
+        ],
+        source_counts=result.source_counts,
+        errors=result.errors,
     )
-    return response.model_copy(update={"search_result": search_result})
+    return WebChatResponse(
+        message=response.message,
+        search_result=search_result,
+        report_draft=response.report_draft,
+    )
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -111,7 +162,7 @@ def chat(payload: ChatRequest) -> ChatReply:
     if not text:
         return ChatReply(
             thread_id=thread_id,
-            response=JupJupChatResponse(message="메시지를 입력해주세요."),
+            response=WebChatResponse(message="메시지를 입력해주세요."),
         )
 
     agent = _get_agent()
@@ -120,7 +171,7 @@ def chat(payload: ChatRequest) -> ChatReply:
             f"실행 오류: {_init_error}\n"
             "실제 API 키 없이 화면만 확인하려면 '데모 모드'를 사용해보세요."
         )
-        return ChatReply(thread_id=thread_id, response=JupJupChatResponse(message=message))
+        return ChatReply(thread_id=thread_id, response=WebChatResponse(message=message))
 
     try:
         response = _response_for_web_chat(agent.chat(text, thread_id=thread_id))
@@ -128,7 +179,7 @@ def chat(payload: ChatRequest) -> ChatReply:
         # 외부 SDK 예외에는 요청 헤더가 포함될 수 있으므로 스택과 원문을
         # 배포 로그나 사용자 응답에 남기지 않는다.
         logger.error("Agent 실행 중 오류 (%s)", type(exc).__name__)
-        response = JupJupChatResponse(
+        response = WebChatResponse(
             message="실행 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
         )
 
@@ -140,9 +191,14 @@ def demo(payload: ChatRequest) -> ChatReply:
     """API 키 없이도 후보 카드 화면을 바로 확인할 수 있는 데모 모드."""
     thread_id = payload.thread_id or str(uuid4())
     result = run_demo()
-    response = JupJupChatResponse(
-        message="(데모 모드) 예시 데이터로 조회한 결과입니다. 실제 API 호출은 하지 않았습니다.",
-        search_result=result,
+    response = _response_for_web_chat(
+        JupJupChatResponse(
+            message=(
+                "(데모 모드) 예시 데이터로 조회한 결과입니다. "
+                "실제 API 호출은 하지 않았습니다."
+            ),
+            search_result=result,
+        )
     )
     return ChatReply(thread_id=thread_id, response=response)
 

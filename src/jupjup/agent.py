@@ -68,7 +68,8 @@ SYSTEM_PROMPT = """당신은 분실물 찾기를 돕는 '줍줍이'입니다.
 - 사용자가 제공하지 않은 조건은 추측해서 Tool 인자에 넣지 마세요.
 - 조회하지 않은 결과를 찾았다고 말하지 마세요.
 - 습득물 후보와 다른 사람이 등록한 유사 분실 신고를 구분하세요.
-- 후보를 안내할 때 점수, 일치 근거, 사진 URL, 상세 URL을 생략하지 마세요.
+- 후보 점수·신뢰도·일치 근거는 내부 정렬에만 사용하고 사용자에게 노출하지 마세요.
+- 후보에는 물품명, 색상·분류, 습득 날짜·시간·장소, 보관 장소·상태, 기관명, 사진과 상세 URL을 사용하세요.
 - API 오류가 있으면 성공한 출처와 실패한 출처를 구분해서 알려주세요.
 - 날짜가 있으면 Tool이 분실일부터 7일, 다음 7일, 그 후 한 달 순서로 검색합니다. 기간을 임의로 최신 날짜로 바꾸지 마세요.
 - search_scopes의 실제 조회 기간과 일부 조회 여부를 안내하세요. 조회 오류를 결과 없음으로 표현하지 마세요.
@@ -309,15 +310,16 @@ def _result_for_model(result: AgentResult) -> str:
         "search_scopes": [scope.model_dump(mode="json") for scope in result.search_scopes],
         "candidates": [
             {
-                "score": candidate.score,
-                "confidence": candidate.confidence,
-                "location_scope": candidate.location_scope,
-                "reasons": candidate.reasons,
                 "source": candidate.record.source.label,
                 "item_name": candidate.record.item_name,
+                "category": candidate.record.category,
+                "color": candidate.record.color,
                 "event_date": candidate.record.event_date,
+                "event_time": candidate.record.event_time,
                 "event_place": candidate.record.event_place,
                 "custody_place": candidate.record.custody_place,
+                "status": candidate.record.status,
+                "organization_name": candidate.record.organization_name,
                 "image_url": candidate.record.image_url,
                 "detail_url": candidate.record.detail_url,
             }

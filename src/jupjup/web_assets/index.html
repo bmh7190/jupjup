@@ -350,6 +350,12 @@ function renderReport(draft) {
   row.append(section); chat.append(row); row.scrollIntoView({block:'start',behavior:'smooth'});
 }
 
+const sourceLabels = {
+  police_lost: '경찰청 분실물',
+  police_found: '경찰청 습득물',
+  portal_found: '포털기관 습득물',
+};
+
 function renderResult(searchResult) {
   const panel = el('div', 'panel');
 
@@ -369,10 +375,6 @@ function renderResult(searchResult) {
     const span = el('span', 'err', `${src} 조회 실패(${msg})`);
     statusLine.appendChild(span);
   });
-  const sourceLabels = {
-    police_lost: '경찰청 분실물', police_found: '경찰청 습득물',
-    portal_found: '포털기관 습득물',
-  };
   const notices = [];
   (searchResult.search_scopes || []).forEach((scope) => {
     if (!scope.partial_reason) return;
@@ -428,9 +430,28 @@ function renderCard(candidate) {
   titleRow.appendChild(el('span', 'title', record.item_name || '이름 없음'));
   card.appendChild(titleRow);
 
-  if (record.source) card.appendChild(el('span', 'source-badge', record.source));
-  card.appendChild(el('div', 'meta', `${record.event_date || '-'} · ${record.event_place || '-'}`));
-  if (record.custody_place) card.appendChild(el('div', 'meta', '보관: ' + record.custody_place));
+  if (record.source) {
+    card.appendChild(el('span', 'source-badge', sourceLabels[record.source] || record.source));
+  }
+
+  const itemDetails = [record.category, record.color].filter(Boolean);
+  if (itemDetails.length) {
+    card.appendChild(el('div', 'meta', itemDetails.join(' · ')));
+  }
+
+  const foundAt = [record.event_date, record.event_time].filter(Boolean).join(' ');
+  const foundDetails = [foundAt, record.event_place].filter(Boolean);
+  if (foundDetails.length) {
+    card.appendChild(el('div', 'meta', '습득: ' + foundDetails.join(' · ')));
+  }
+
+  const custodyDetails = [record.custody_place, record.status].filter(Boolean);
+  if (custodyDetails.length) {
+    card.appendChild(el('div', 'meta', '보관: ' + custodyDetails.join(' · ')));
+  }
+  if (record.organization_name && record.organization_name !== record.custody_place) {
+    card.appendChild(el('div', 'meta', '기관: ' + record.organization_name));
+  }
 
   const links = el('div', 'links');
   if (record.detail_url) {
