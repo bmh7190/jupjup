@@ -38,7 +38,15 @@ class JupJupAgentService:
             # 텍스트 점수가 높은 소수 후보에만 비전 모델을 적용해 비용과 시간을 제한한다.
             pre_ranked = self.matcher.rank(query, found_records, limit=vision_limit)
             for candidate in pre_ranked:
-                assessment = self.vision_matcher.score(query, candidate.record)
+                try:
+                    assessment = self.vision_matcher.score(query, candidate.record)
+                except Exception as exc:
+                    # 선택 기능의 실패가 공개 데이터 기반 텍스트 후보를 없애지 않게 한다.
+                    errors.setdefault(
+                        "이미지 비교",
+                        f"일부 이미지 판정 실패 ({type(exc).__name__})",
+                    )
+                    continue
                 if assessment:
                     vision_scores[candidate.record.atc_id] = assessment.similarity
 
