@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import date
 
-from .matcher import LostItemMatcher
-from .models import AgentResult, LostItemQuery, RecordSource, SearchRecord
+from .domain.matcher import LostItemMatcher
+from .domain.models import AgentResult, LostItemQuery, RecordSource, SearchRecord
 
 
 def run_demo() -> AgentResult:

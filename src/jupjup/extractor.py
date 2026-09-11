@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import date
 from typing import Iterable
 
-from .models import LostItemQuery
-from .privacy import mask_pii
+from .domain.models import LostItemQuery
+from .domain.privacy import mask_pii
 
 
 class LostItemExtractor:
@@ -52,4 +52,3 @@ class LostItemExtractor:
         if not isinstance(result, LostItemQuery):
             result = LostItemQuery.model_validate(result)
         return result
-
