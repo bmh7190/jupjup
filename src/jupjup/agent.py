@@ -34,6 +34,7 @@ SYSTEM_PROMPT = """당신은 분실물 찾기를 돕는 '줍줍이'입니다.
 다음 원칙을 지키세요.
 - 먼저 사용자의 의도를 습득물 조회와 분실신고 작성 도움으로 구분하세요.
 - 사용자의 설명에서 물품명, 분실일, 장소, 지역, 색상, 크기, 브랜드, 수량, 특징을 파악하세요.
+- region은 광역 시도명으로 통일하세요. 예: 강남역·광진구는 서울, 우도는 제주입니다.
 - item_name에는 '지갑'처럼 짧은 일반 물품명을 넣고 '샤넬' 같은 브랜드와 색상은 별도 인자로 전달하세요.
 - 현재 메시지에서 사용자가 분실신고 작성, 문장 정리, 누락 확인을 명시적으로 요청한 경우에만 prepare_lost_report_draft Tool을 호출하세요.
 - 단순히 물건을 잃어버렸다고 설명하거나 습득물 조회를 요청한 경우에는 신고서 Tool을 호출하지 마세요.
@@ -167,6 +168,8 @@ def _result_for_model(result: AgentResult) -> str:
         "candidates": [
             {
                 "score": candidate.score,
+                "confidence": candidate.confidence,
+                "location_scope": candidate.location_scope,
                 "reasons": candidate.reasons,
                 "source": candidate.record.source.label,
                 "item_name": candidate.record.item_name,

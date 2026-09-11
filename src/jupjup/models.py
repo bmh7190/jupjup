@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -20,6 +21,18 @@ class RecordSource(str, Enum):
             self.POLICE_FOUND: "경찰청 습득물",
             self.PORTAL_FOUND: "포털기관 습득물",
         }[self]
+
+
+CandidateConfidence = Literal["high", "medium", "low"]
+LocationScope = Literal[
+    "direct",
+    "district",
+    "nearby",
+    "region",
+    "adjacent",
+    "nationwide",
+    "unrestricted",
+]
 
 
 class LostItemQuery(BaseModel):
@@ -89,6 +102,8 @@ class MatchCandidate(BaseModel):
     record: SearchRecord
     score: float = Field(ge=0.0, le=100.0)
     breakdown: ScoreBreakdown
+    confidence: CandidateConfidence = "low"
+    location_scope: LocationScope = "unrestricted"
     reasons: list[str] = Field(default_factory=list)
 
 
