@@ -407,7 +407,7 @@ class Lost112ApiClient:
             organization_name=_text(item, "orgNm") or None,
             telephone=_text(item, "tel") or None,
             status=_text(item, "csteSteNm") or None,
-            detail_url=_build_detail_url(atc_id, sequence),
+            detail_url=_build_detail_url(atc_id, sequence, definition.source),
         )
 
 
@@ -436,10 +436,18 @@ def _to_int(value: str) -> int:
         return 0
 
 
-def _build_detail_url(atc_id: str, sequence: str | None) -> str | None:
-    if not atc_id:
+def _build_detail_url(
+    atc_id: str, sequence: str | None, source: RecordSource
+) -> str | None:
+    if not atc_id or source == RecordSource.POLICE_LOST:
         return None
-    params = {"ATC_ID": atc_id}
+    params = {
+        "cvlcptId": "MW-201",
+        "pkupCmdtyMngId": atc_id,
+    }
     if sequence:
-        params["FD_SN"] = sequence
-    return f"https://minwon24.police.go.kr/main.do?{urllib.parse.urlencode(params)}"
+        params["sortSn"] = sequence
+    return (
+        "https://minwon24.police.go.kr/cvlcpt/selectFindListDetail.do?"
+        f"{urllib.parse.urlencode(params)}"
+    )

@@ -57,7 +57,25 @@ class ApiParsingTest(unittest.TestCase):
         self.assertEqual(record.event_date, date(2026, 9, 9))
         self.assertEqual(record.event_place, "강남역")
         self.assertEqual(record.image_url, "https://example.com/wallet.jpg")
-        self.assertIn("ATC_ID=F2026090900000001", record.detail_url or "")
+        self.assertIn("selectFindListDetail.do", record.detail_url or "")
+        self.assertIn("pkupCmdtyMngId=F2026090900000001", record.detail_url or "")
+        self.assertIn("sortSn=1", record.detail_url or "")
+
+    def test_lost_report_does_not_link_to_homepage(self) -> None:
+        root = ET.fromstring(
+            """
+            <response><body><items><item>
+            <atcId>L2026090900000001</atcId><lstPrdtNm>지갑</lstPrdtNm>
+            </item></items></body></response>
+            """
+        )
+        item = root.find(".//item")
+        assert item is not None
+        definition = next(
+            d for d in API_DEFINITIONS if d.source == RecordSource.POLICE_LOST
+        )
+
+        self.assertIsNone(Lost112ApiClient._parse_record(item, definition).detail_url)
 
     def test_placeholder_image_is_removed(self) -> None:
         root = ET.fromstring(FOUND_XML.replace(
