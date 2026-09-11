@@ -131,16 +131,11 @@
   .card .thumb img { width: 100%; height: 100%; object-fit: contain; }
   .card .title-row { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
   .card .title { font-weight: 600; font-size: 13px; }
-  .card .score { font-weight: 700; font-size: 12px; color: var(--brand); white-space: nowrap; }
   .card .source-badge {
     font-size: 11px; color: var(--muted); background: #f0f1f6; padding: 2px 8px; border-radius: 999px;
     width: fit-content;
   }
   .card .meta { font-size: 12px; color: var(--muted); }
-  .card .reasons { display: flex; flex-wrap: wrap; gap: 4px; }
-  .card .reason {
-    font-size: 11px; background: #ecfdf5; color: #047857; padding: 2px 8px; border-radius: 999px;
-  }
   .card .links { display: flex; gap: 8px; margin-top: 2px; }
   .card .links a { font-size: 11px; color: var(--brand); text-decoration: none; }
   .card .links a:hover { text-decoration: underline; }
@@ -426,7 +421,6 @@ function renderCard(candidate) {
 
   const titleRow = el('div', 'title-row');
   titleRow.appendChild(el('span', 'title', record.item_name || '이름 없음'));
-  titleRow.appendChild(el('span', 'score', `${candidate.score ?? '-'}점`));
   card.appendChild(titleRow);
 
   if (record.source) card.appendChild(el('span', 'source-badge', record.source));
@@ -437,12 +431,6 @@ function renderCard(candidate) {
   }
   card.appendChild(el('div', 'meta', `${record.event_date || '-'} · ${record.event_place || '-'}`));
   if (record.custody_place) card.appendChild(el('div', 'meta', '보관: ' + record.custody_place));
-
-  if (candidate.reasons && candidate.reasons.length) {
-    const reasons = el('div', 'reasons');
-    candidate.reasons.forEach((reason) => reasons.appendChild(el('span', 'reason', reason)));
-    card.appendChild(reasons);
-  }
 
   const links = el('div', 'links');
   if (record.detail_url) {
