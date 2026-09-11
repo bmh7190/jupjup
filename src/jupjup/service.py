@@ -54,7 +54,12 @@ class JupJupAgentService:
             query, found_records, limit=candidate_limit, vision_scores=vision_scores
         )
         source_counts = {
-            response.source.label: response.total_count for response in responses
+            response.source.label: response.total_count
+            for response in responses
+            # 날짜 검색은 실패한 호출도 오류 scope를 보존하기 위해 빈 응답으로
+            # 돌려준다. 한 페이지도 받지 못한 출처를 성공한 0건으로 세지 않는다.
+            if not response.search_scopes
+            or any(scope.pages_completed > 0 for scope in response.search_scopes)
         }
         # 동일 물품명으로 접수된 다른 분실 신고는 후보와 분리해서 참고 정보로 제공한다.
         similar_lost_reports = sorted(
