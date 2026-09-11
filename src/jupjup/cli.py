@@ -82,7 +82,18 @@ def print_report_draft(draft: LostReportDraft) -> None:
 
 def print_chat_response(response: JupJupChatResponse, *, as_json: bool) -> None:
     if as_json:
-        print(response.model_dump_json(indent=2))
+        # 내부 조회에는 연락처가 필요할 수 있지만 사용자 JSON에는 노출하지 않는다.
+        print(
+            response.model_dump_json(
+                indent=2,
+                exclude={
+                    "search_result": {
+                        "candidates": {"__all__": {"record": {"telephone"}}},
+                        "similar_lost_reports": {"__all__": {"telephone"}},
+                    }
+                },
+            )
+        )
         return
     print(f"\n줍줍이: {response.message}")
     if response.search_result:
@@ -97,7 +108,8 @@ def run_chat(agent: JupJupChatAgent, initial_text: str | None, *, as_json: bool)
     if initial_text:
         response = agent.chat(initial_text, thread_id=thread_id)
         print_chat_response(response, as_json=as_json)
-        return 0 if not response.search_result or not response.search_result.errors else 1
+        # 일부 출처가 실패해도 다른 출처의 응답이 있으면 정상적인 부분 성공이다.
+        return 0 if not response.search_result or response.search_result.source_counts else 1
 
     print("잃어버린 물건을 설명해주세요. 종료하려면 '종료'를 입력하세요.")
     while True:
