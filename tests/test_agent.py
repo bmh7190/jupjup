@@ -17,6 +17,7 @@ from pydantic import PrivateAttr
 
 from jupjup.agent import (
     JupJupChatAgent,
+    _search_result_message,
     build_middlewares,
     create_lost112_search_tool,
     create_lost_report_tool,
@@ -78,7 +79,12 @@ class ScriptedToolModel(BaseChatModel):
                 ],
             )
         else:
-            message = AIMessage(content="검색을 완료했습니다.")
+            message = AIMessage(
+                content=(
+                    "상세: https://minwon24.police.go.kr/example?"
+                    "pkupCmdId=모델이잘못바꾼값"
+                )
+            )
         return ChatResult(generations=[ChatGeneration(message=message)])
 
 
@@ -241,7 +247,10 @@ class AgentConfigurationTest(unittest.TestCase):
             thread_id="forced-search-test",
         )
 
-        self.assertEqual(response.message, "검색을 완료했습니다.")
+        self.assertEqual(
+            response.message,
+            "조회했지만 조건에 맞는 습득물 후보를 찾지 못했습니다.",
+        )
         self.assertIsNotNone(response.search_result)
         self.assertIsNotNone(service.received)
         self.assertIn("search_lost112_candidates", model._tool_choices)
@@ -285,6 +294,20 @@ class AgentConfigurationTest(unittest.TestCase):
         self.assertEqual(service.received.lost_date, date(2026, 9, 10))
         self.assertIn("source_counts", content)
 
+    def test_search_summary_is_generated_from_structured_result(self) -> None:
+        result = AgentResult(
+            query=LostItemQuery(item_name="지갑", search_ready=True),
+            candidates=[],
+            similar_lost_reports=[],
+            source_counts={},
+            errors={"경찰청 습득물": "HTTP 오류"},
+        )
+
+        self.assertEqual(
+            _search_result_message(result),
+            "분실물 조회에 실패했습니다. 아래 오류 내용을 확인해주세요.",
+        )
+
     def test_agent_has_pii_retry_and_call_limit_middlewares(self) -> None:
         middlewares = build_middlewares()
 
@@ -302,7 +325,11 @@ class AgentConfigurationTest(unittest.TestCase):
         second = agent.chat("검은색 카드지갑이에요", thread_id="memory-test")
 
         self.assertEqual(first.message, "어떤 물건을 잃어버리셨나요?")
-        self.assertEqual(second.message, "검색을 완료했습니다.")
+        self.assertEqual(
+            second.message,
+            "조회했지만 조건에 맞는 습득물 후보를 찾지 못했습니다.",
+        )
+        self.assertNotIn("pkupCmdId", second.message)
         self.assertIsNotNone(second.search_result)
         self.assertEqual(service.received.item_name, "카드지갑")  # type: ignore[union-attr]
         second_turn_inputs = model._received_messages[1]
