@@ -29,6 +29,7 @@ SYSTEM_PROMPT = """당신은 분실물 찾기를 돕는 '줍줍이'입니다.
 
 다음 원칙을 지키세요.
 - 사용자의 설명에서 물품명, 분실일, 장소, 지역, 색상, 브랜드, 특징을 파악하세요.
+- item_name에는 '지갑'처럼 짧은 일반 물품명을 넣고 '샤넬' 같은 브랜드와 색상은 별도 인자로 전달하세요.
 - 물품명을 알 수 없으면 검색하지 말고 먼저 물어보세요.
 - 물품명을 알 수 있으면 search_lost112_candidates Tool로 실제 데이터를 조회하세요.
 - 사용자가 제공하지 않은 조건은 추측해서 Tool 인자에 넣지 마세요.
@@ -36,6 +37,8 @@ SYSTEM_PROMPT = """당신은 분실물 찾기를 돕는 '줍줍이'입니다.
 - 습득물 후보와 다른 사람이 등록한 유사 분실 신고를 구분하세요.
 - 후보를 안내할 때 점수, 일치 근거, 사진 URL, 상세 URL을 생략하지 마세요.
 - API 오류가 있으면 성공한 출처와 실패한 출처를 구분해서 알려주세요.
+- 날짜가 있으면 Tool이 분실일부터 7일, 다음 7일, 그 후 한 달 순서로 검색합니다. 기간을 임의로 최신 날짜로 바꾸지 마세요.
+- search_scopes의 실제 조회 기간과 일부 조회 여부를 안내하세요. 조회 오류를 결과 없음으로 표현하지 마세요.
 - 주민등록번호, 카드번호, 전화번호, 이메일 등 개인정보를 답변에 노출하지 마세요.
 """
 
@@ -53,6 +56,7 @@ def _result_for_model(result: AgentResult) -> str:
         "query": result.query.model_dump(mode="json", exclude_none=True),
         "source_counts": result.source_counts,
         "errors": result.errors,
+        "search_scopes": [scope.model_dump(mode="json") for scope in result.search_scopes],
         "candidates": [
             {
                 "score": candidate.score,
