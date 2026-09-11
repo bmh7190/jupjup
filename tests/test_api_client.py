@@ -3,13 +3,14 @@ from __future__ import annotations
 import unittest
 import xml.etree.ElementTree as ET
 from datetime import date
+from unittest.mock import patch
 
 from jupjup.api_client import (
     API_DEFINITIONS,
     Lost112ApiClient,
     _product_category_codes,
 )
-from jupjup.models import LostItemQuery, RecordSource
+from jupjup.models import LostItemQuery, RecordSource, SearchRecord
 
 
 FOUND_XML = """
@@ -67,6 +68,23 @@ class ApiParsingTest(unittest.TestCase):
         assert item is not None
         definition = next(d for d in API_DEFINITIONS if d.source == RecordSource.POLICE_FOUND)
         self.assertIsNone(Lost112ApiClient._parse_record(item, definition).image_url)
+
+    def test_detail_timeout_keeps_list_record(self) -> None:
+        definition = next(
+            d for d in API_DEFINITIONS if d.source == RecordSource.POLICE_FOUND
+        )
+        client = Lost112ApiClient("test-key")
+        record = SearchRecord(
+            source=RecordSource.POLICE_FOUND,
+            record_type="found",
+            atc_id="F1",
+            item_name="검정 카드지갑",
+        )
+
+        with patch.object(client, "_request_xml", side_effect=TimeoutError):
+            result = client._fetch_and_merge_detail(definition, record)
+
+        self.assertEqual(result, record)
 
 
 if __name__ == "__main__":
