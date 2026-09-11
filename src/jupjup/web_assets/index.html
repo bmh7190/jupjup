@@ -380,9 +380,12 @@ async function send(endpoint, text) {
     const data = await res.json();
     threadId = data.thread_id;
     removeTyping();
-    addMessage('bot', data.response.message);
     if (data.response.search_result) {
+      // 검색 결과(카드 패널)가 있으면 모델이 만든 설명 텍스트는 생략하고
+      // 카드 패널만 보여준다.
       renderResult(data.response.search_result);
+    } else {
+      addMessage('bot', data.response.message);
     }
   } catch (e) {
     removeTyping();
