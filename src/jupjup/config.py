@@ -38,6 +38,18 @@ class Settings:
     page_size: int
     timeout_seconds: float
     detail_limit: int
+    max_pages_per_window: int
+    search_budget_seconds: float
+
+    @property
+    def api_client_options(self) -> dict[str, int | float]:
+        return {
+            "page_size": self.page_size,
+            "timeout_seconds": self.timeout_seconds,
+            "detail_limit": self.detail_limit,
+            "max_pages_per_window": self.max_pages_per_window,
+            "search_budget_seconds": self.search_budget_seconds,
+        }
 
     @classmethod
     def from_env(cls, env_path: Path | None = None) -> "Settings":
@@ -54,4 +66,10 @@ class Settings:
             page_size=max(1, min(int(os.getenv("LOST112_PAGE_SIZE", "10")), 100)),
             timeout_seconds=max(1.0, float(os.getenv("LOST112_TIMEOUT_SECONDS", "15"))),
             detail_limit=max(0, int(os.getenv("LOST112_DETAIL_LIMIT", "5"))),
+            max_pages_per_window=max(
+                1, int(os.getenv("LOST112_MAX_PAGES_PER_WINDOW", "10"))
+            ),
+            search_budget_seconds=max(
+                0.01, float(os.getenv("LOST112_SEARCH_BUDGET_SECONDS", "30"))
+            ),
         )

@@ -61,4 +61,5 @@ class JupJupAgentService:
             similar_lost_reports=similar_lost_reports,
             source_counts=source_counts,
             errors=errors,
+            search_scopes=[scope for response in responses for scope in response.search_scopes],
         )

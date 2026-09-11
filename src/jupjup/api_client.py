@@ -6,16 +6,41 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+import calendar
+import time
+from contextvars import ContextVar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Mapping
 
-from .models import ApiSearchResponse, LostItemQuery, RecordSource, SearchRecord
+from .models import ApiSearchResponse, LostItemQuery, RecordSource, SearchRecord, SearchScope
 
 
 BASE_URL = "https://apis.data.go.kr/1320000"
 NO_IMAGE_MARKERS = ("img02_no_img.gif", "img04_no_img.gif")
+REQUEST_DEADLINE: ContextVar[float | None] = ContextVar("request_deadline", default=None)
+PERIOD_OPERATIONS = {
+    RecordSource.POLICE_LOST: "getLostGoodsInfoAccToClAreaPd",
+    RecordSource.POLICE_FOUND: "getLosfundInfoAccToClAreaPd",
+    RecordSource.PORTAL_FOUND: "getPtLosfundInfoAccToClAreaPd",
+}
+
+
+def build_search_windows(lost_date: date, today: date | None = None) -> list[tuple[date, date]]:
+    """분실일 포함 7일, 다음 7일, 이어지는 한 달. 끝 날짜는 포함한다."""
+    today = today or datetime.now(ZoneInfo("Asia/Seoul")).date()
+    if lost_date > today:
+        raise ValueError("분실일은 오늘 이후일 수 없습니다.")
+    third_start = lost_date + timedelta(days=14)
+    year = third_start.year + (third_start.month == 12)
+    month = third_start.month % 12 + 1
+    next_month = date(year, month, min(third_start.day, calendar.monthrange(year, month)[1]))
+    windows = [(lost_date, lost_date + timedelta(days=6)),
+               (lost_date + timedelta(days=7), third_start - timedelta(days=1)),
+               (third_start, next_month - timedelta(days=1))]
+    return [(start, min(end, today)) for start, end in windows if start <= today]
 
 
 @dataclass(frozen=True)
@@ -124,11 +149,15 @@ class Lost112ApiClient:
         timeout_seconds: float = 15,
         page_size: int = 10,
         detail_limit: int = 5,
+        max_pages_per_window: int = 10,
+        search_budget_seconds: float = 30,
     ) -> None:
         self.service_key = service_key
         self.timeout_seconds = timeout_seconds
         self.page_size = page_size
         self.detail_limit = detail_limit
+        self.max_pages_per_window = max(1, max_pages_per_window)
+        self.search_budget_seconds = max(0.01, search_budget_seconds)
 
     def search_all(
         self, query: LostItemQuery
@@ -136,6 +165,8 @@ class Lost112ApiClient:
         """API 세 개를 독립적으로 호출하고 일부 실패도 결과와 함께 돌려준다."""
         if not query.item_name:
             raise ValueError("API 검색에는 item_name이 필요합니다.")
+        if query.lost_date:
+            return self._search_dated(query)
 
         responses: list[ApiSearchResponse] = []
         errors: dict[str, str] = {}
@@ -154,6 +185,97 @@ class Lost112ApiClient:
         order = {definition.source: index for index, definition in enumerate(API_DEFINITIONS)}
         responses.sort(key=lambda response: order[response.source])
         return responses, errors
+
+    def _search_dated(self, query: LostItemQuery) -> tuple[list[ApiSearchResponse], dict[str, str]]:
+        assert query.lost_date is not None
+        windows = build_search_windows(query.lost_date)
+        deadline = time.monotonic() + self.search_budget_seconds
+        combined = {d.source: ApiSearchResponse(source=d.source, total_count=0, records=[]) for d in API_DEFINITIONS}
+        errors: dict[str, str] = {}
+        seen: set[tuple[RecordSource, str, str | None]] = set()
+        for start, end in windows:
+            with ThreadPoolExecutor(max_workers=len(API_DEFINITIONS)) as executor:
+                futures = [executor.submit(self._search_window, d, query, start, end, deadline) for d in API_DEFINITIONS]
+                for future in as_completed(futures):
+                    result = future.result()
+                    target = combined[result.source]
+                    target.total_count += result.total_count
+                    target.search_scopes.extend(result.search_scopes)
+                    for scope in result.search_scopes:
+                        if scope.error:
+                            previous = errors.get(result.source.label, "")
+                            errors[result.source.label] = (previous + f" {start}~{end}: {scope.error}").strip()
+                    for record in result.records:
+                        key = (record.source, record.atc_id, record.sequence)
+                        if key not in seen:
+                            seen.add(key)
+                            target.records.append(record)
+            if sum(len(r.records) for r in combined.values() if r.source != RecordSource.POLICE_LOST) >= 5:
+                break
+            if time.monotonic() >= deadline:
+                break
+        return list(combined.values()), errors
+
+    def _search_window(self, definition: ApiDefinition, query: LostItemQuery,
+                       start: date, end: date, deadline: float) -> ApiSearchResponse:
+        scope = SearchScope(source=definition.source, start_date=start, end_date=end)
+        result = ApiSearchResponse(source=definition.source, total_count=0, records=[], search_scopes=[scope])
+        url = f"{BASE_URL}/{definition.service}/{PERIOD_OPERATIONS[definition.source]}"
+        seen: set[tuple[str, str | None]] = set()
+        token = REQUEST_DEADLINE.set(deadline)
+        try:
+            for page in range(1, self.max_pages_per_window + 1):
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("전체 조회 시간 제한")
+                root = self._request_xml(url, {"serviceKey": self.service_key,
+                    "START_YMD": start.strftime("%Y%m%d"), "END_YMD": end.strftime("%Y%m%d"),
+                    "pageNo": str(page), "numOfRows": str(self.page_size)})
+                self._ensure_success(root, definition.source)
+                result.total_count = scope.total_count = _to_int(_text(root, "totalCount"))
+                records = [self._parse_record(item, definition) for item in root.findall(".//item")]
+                scope.pages_completed = page
+                scope.retrieved_count += len(records)
+                for record in records:
+                    if record.event_date is None or not start <= record.event_date <= end:
+                        scope.error = "요청 기간 밖 또는 날짜 미상 자료 제외"
+                        continue
+                    # 기간 API는 PRDT_NM을 무시하므로 명칭/분류는 로컬에서 검사한다.
+                    needle = (query.item_name or "").replace(" ", "").casefold()
+                    haystack = f"{record.item_name} {record.category or ''}".replace(" ", "").casefold()
+                    key = (record.atc_id, record.sequence)
+                    if record.atc_id and needle in haystack and key not in seen:
+                        seen.add(key)
+                        result.records.append(record)
+                if scope.retrieved_count >= result.total_count:
+                    scope.complete = scope.error is None
+                    break
+                if not records:
+                    scope.error = "전체 건수에 도달하기 전에 빈 페이지 반환"
+                    break
+            else:
+                scope.error = "페이지 제한으로 일부만 조회"
+            # 기간/물품 필터를 통과한 후보 중 점수가 높은 항목부터 상세를 보완한다.
+            from .matcher import LostItemMatcher
+            if definition.record_type == "lost":
+                detail_records = result.records[:self.detail_limit]
+            else:
+                ranked = LostItemMatcher().rank(query, result.records, limit=self.detail_limit)
+                detail_records = [candidate.record for candidate in ranked]
+            detail_keys = {(record.atc_id, record.sequence) for record in detail_records}
+            for index, record in enumerate(result.records):
+                if (record.atc_id, record.sequence) in detail_keys:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("상세 조회 시간 제한")
+                    detail = self._fetch_and_merge_detail(definition, record)
+                    if detail.event_date is not None and start <= detail.event_date <= end:
+                        result.records[index] = detail
+        except Exception as exc:
+            # 키를 포함할 수 있는 원본 예외/URL을 결과에 저장하지 않는다.
+            scope.complete = False
+            scope.error = f"조회 중단 ({type(exc).__name__})"
+        finally:
+            REQUEST_DEADLINE.reset(token)
+        return result
 
     def search(self, definition: ApiDefinition, query: LostItemQuery) -> ApiSearchResponse:
         params = self._build_list_params(definition, query)
@@ -229,12 +351,18 @@ class Lost112ApiClient:
         return record.model_copy(update=updates)
 
     def _request_xml(self, url: str, params: Mapping[str, str]) -> ET.Element:
+        deadline = REQUEST_DEADLINE.get()
+        timeout = self.timeout_seconds
+        if deadline is not None:
+            timeout = min(timeout, deadline - time.monotonic())
+            if timeout <= 0:
+                raise TimeoutError("전체 조회 시간 제한")
         encoded = urllib.parse.urlencode(params)
         request = urllib.request.Request(
             f"{url}?{encoded}", headers={"User-Agent": "jupjup/0.1"}
         )
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
                 body = response.read()
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")[:300]
