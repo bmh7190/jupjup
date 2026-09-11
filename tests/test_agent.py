@@ -803,10 +803,32 @@ class AgentConfigurationTest(unittest.TestCase):
     def test_agent_has_pii_retry_and_call_limit_middlewares(self) -> None:
         middlewares = build_middlewares()
 
+        self.assertEqual(type(middlewares[0]).__name__, "validate_user_input")
+        self.assertEqual(type(middlewares[-1]).__name__, "validate_final_answer")
         self.assertEqual(sum(isinstance(item, PIIMiddleware) for item in middlewares), 4)
         self.assertTrue(any(isinstance(item, ToolRetryMiddleware) for item in middlewares))
         self.assertTrue(any(isinstance(item, ToolCallLimitMiddleware) for item in middlewares))
         self.assertTrue(any(isinstance(item, ModelCallLimitMiddleware) for item in middlewares))
+
+    def test_before_agent_blocks_blank_input_before_model_call(self) -> None:
+        agent = JupJupChatAgent(StubService(), model=EchoModel())  # type: ignore[arg-type]
+
+        response = agent.chat("", thread_id="blank-input")
+
+        self.assertEqual(response.message, "메시지를 입력해주세요.")
+        self.assertIsNone(response.search_result)
+        self.assertIsNone(response.report_draft)
+
+    def test_after_agent_corrects_false_submission_claim(self) -> None:
+        agent = JupJupChatAgent(StubService(), model=EchoModel())  # type: ignore[arg-type]
+
+        response = agent.chat("신고를 접수했습니다", thread_id="false-submission")
+
+        self.assertEqual(
+            response.message,
+            "신고서는 자동 접수되지 않았습니다. 초안을 확인한 뒤 "
+            "경찰민원24에서 직접 접수해주세요.",
+        )
 
     def test_agent_calls_tool_and_remembers_previous_turn(self) -> None:
         service = StubService()

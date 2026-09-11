@@ -11,11 +11,11 @@ from uuid import uuid4
 from langchain_core.exceptions import ModelAuthenticationError
 
 from .agent import JupJupChatAgent, JupJupChatResponse
-from .api_client import Lost112ApiClient
+from .application.service import JupJupAgentService
 from .config import Settings
 from .demo import run_demo
-from .models import AgentResult, LostReportDraft
-from .service import JupJupAgentService
+from .domain.models import AgentResult, LostReportDraft
+from .infrastructure.lost112.client import Lost112ApiClient
 from .vision import VisionMatcher
 
 

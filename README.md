@@ -20,27 +20,50 @@
 
 ```text
 src/jupjup/
-├── config.py       # .env와 실행 설정
-├── models.py       # Pydantic 데이터 모델
-├── privacy.py      # LLM 전달 전 개인정보 마스킹
-├── report.py       # 분실신고 초안·누락 항목·작성 팁 생성
-├── extractor.py    # 독립 실행 가능한 LangChain 구조화 추출 체인
-├── api_client.py   # 경찰청 API 3종 조회와 XML 표준화
-├── matcher.py      # 유사도 계산과 추천 근거
-├── vision.py       # 선택적인 습득물 사진 판정
-├── service.py      # API 조회·매칭 도메인 서비스
-├── agent.py        # create_agent, Custom Tool, Middleware, Memory
-├── cli.py          # Agent를 사용하는 터미널 채팅 화면
-├── web.py          # 같은 Agent를 브라우저 채팅 화면으로 보여주는 FastAPI 서버
-├── web_assets/     # web.py가 서빙하는 정적 채팅 UI (index.html)
-└── demo.py         # API 키 없는 로컬 데모
+├── domain/                     # 외부 프레임워크와 분리된 모델·매칭·신고서 규칙
+│   ├── models.py
+│   ├── matcher.py
+│   ├── privacy.py
+│   └── report.py
+├── application/                # 기능별 사용 사례와 Agent용 서비스 파사드
+│   ├── found_search.py
+│   ├── lost_reports.py
+│   ├── ports.py                # 외부 검색·이미지 판정 인터페이스
+│   └── service.py
+├── infrastructure/lost112/     # 경찰청 API 구현 세부사항
+│   ├── definitions.py          # API 주소·오퍼레이션·분류 코드
+│   ├── parser.py               # XML 응답 정규화
+│   └── client.py               # HTTP·페이지·시간 예산 처리
+├── agent/                      # LangChain 실행 계층
+│   ├── intents.py              # 대화 의도와 이전 대화 문맥 분석
+│   ├── tools.py                # Custom Tool
+│   ├── middleware.py           # before/after 및 wrap Middleware
+│   └── chat.py                 # create_agent, Memory, 응답 조립
+├── web/
+│   ├── schemas.py              # 외부 공개 요청·응답 DTO
+│   └── app.py                  # FastAPI 라우트
+├── cli.py                      # 터미널 채팅 진입점
+├── config.py                   # .env와 실행 설정
+├── vision.py                   # 선택적인 습득물 사진 판정
+├── web_assets/                 # 정적 채팅 UI
+└── api_client.py 등            # 기존 import 경로를 위한 얇은 호환 모듈
 ```
+
+의존성은 `web/agent → application → domain` 방향으로 흐릅니다. 경찰 API 구현은
+`infrastructure/`에 격리하고, 기존 `jupjup.api_client`, `jupjup.models` 등의 import
+경로는 호환 모듈로 유지합니다.
+
+상세한 의존 규칙과 Middleware 실행 순서는 [docs/architecture.md](docs/architecture.md)에 정리했습니다.
 
 `경찰청 분실물정보`는 다른 사용자의 분실 신고이므로 습득물 후보와 섞지 않습니다. 사용자가 "유사한 분실 신고도 확인해줘"라고 요청할 때만 별도로 조회합니다. 실제 후보 추천에는 `경찰청 습득물정보`와 `포털기관 습득물정보`를 사용합니다.
 
 ## LangChain Agent 구성
 
 - `create_agent`: 모델이 대화를 해석하고 Tool 호출 여부와 인자를 결정합니다.
+- `@before_agent`: 빈 입력을 모델 호출 전에 검사하고 즉시 종료합니다.
+- `@after_agent`: Agent의 최종 답변에 실제로 수행하지 않은 신고 접수 완료 표현이 있으면 공식 접수 절차 안내로 교정합니다.
+- `@wrap_model_call`: 현재 사용자 의도에 맞는 Tool만 모델에 공개하고 필요한 Tool 선택을 강제합니다.
+- `@wrap_tool_call`: 검색 물품명 검증과 같은 thread의 신고서·조회 문맥 병합을 실제 Tool 실행 경계에서 처리합니다.
 - `@tool`: `search_lost112_candidates`가 습득물 API 2종 조회와 후보 매칭을 실행합니다.
 - `@tool`: `search_similar_lost_reports`가 명시적인 요청에서만 경찰청 분실물 API를 조회합니다.
 - `@tool`: `prepare_lost_report_draft`가 신고서 초안과 제출 전 체크리스트를 만듭니다.
@@ -234,4 +257,4 @@ curl http://127.0.0.1:8000/api/status
 PYTHONPATH=src python -m unittest discover -s tests -v
 ```
 
-현재 기준으로 `Ran 56 tests`와 `OK`가 출력되어야 합니다. 웹 UI 수정 시에는 인라인 JavaScript 문법과 `/`, `/api/status`, `/api/demo`, `/api/chat` 응답도 함께 확인합니다.
+현재 기준으로 `Ran 78 tests`와 `OK`가 출력되어야 합니다. 웹 UI 수정 시에는 인라인 JavaScript 문법과 `/`, `/api/status`, `/api/demo`, `/api/chat` 응답도 함께 확인합니다.

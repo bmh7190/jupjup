@@ -9,7 +9,7 @@ import urllib.request
 
 from langchain_core.exceptions import ModelInvalidRequestError
 
-from .models import LostItemQuery, SearchRecord, VisionAssessment
+from .domain.models import LostItemQuery, SearchRecord, VisionAssessment
 
 
 ALLOWED_IMAGE_HOSTS = {"minwon24.police.go.kr"}

@@ -1,12 +1,10 @@
-"""이전 import 경로를 유지하는 LOST112 클라이언트 호환 모듈."""
+"""경찰청 LOST112 Open API 연동."""
 
-from .infrastructure.lost112.client import (
+from .client import Lost112ApiClient, Lost112ApiError
+from .definitions import (
     API_DEFINITIONS,
     FOUND_RECORD_SOURCES,
     ApiDefinition,
-    Lost112ApiClient,
-    Lost112ApiError,
-    _product_category_codes,
     build_search_windows,
 )
 

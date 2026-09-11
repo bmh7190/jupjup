@@ -3,20 +3,25 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
 from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, Response
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
 
-from .agent import JupJupChatAgent, JupJupChatResponse
-from .api_client import Lost112ApiClient
-from .config import Settings
-from .demo import run_demo
-from .models import LostItemQuery, LostReportDraft, RecordSource, SearchRecord
-from .service import JupJupAgentService
+from ..agent import JupJupChatAgent, JupJupChatResponse
+from ..application.service import JupJupAgentService
+from ..config import Settings
+from ..demo import run_demo
+from ..infrastructure.lost112.client import Lost112ApiClient
+from .schemas import (
+    ChatReply,
+    ChatRequest,
+    WebCandidate,
+    WebChatResponse,
+    WebSearchRecord,
+    WebSearchResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,56 +61,6 @@ def _get_agent() -> JupJupChatAgent | None:
     return _agent
 
 
-class ChatRequest(BaseModel):
-    message: str
-    thread_id: str | None = None
-
-
-class WebSearchRecord(BaseModel):
-    """습득물 후보에서 사용자 확인에 필요한 공개 필드."""
-
-    source: RecordSource
-    item_name: str
-    category: str | None = None
-    event_date: date | None = None
-    event_time: str | None = None
-    event_place: str | None = None
-    custody_place: str | None = None
-    color: str | None = None
-    image_url: str | None = None
-    organization_name: str | None = None
-    status: str | None = None
-    detail_url: str | None = None
-
-    @classmethod
-    def from_record(cls, record: SearchRecord) -> "WebSearchRecord":
-        return cls.model_validate(record.model_dump())
-
-
-class WebCandidate(BaseModel):
-    """점수와 판정 근거를 제외한 사용자용 후보."""
-
-    record: WebSearchRecord
-
-
-class WebSearchResult(BaseModel):
-    query: LostItemQuery
-    candidates: list[WebCandidate]
-    source_counts: dict[str, int]
-    errors: dict[str, str]
-
-
-class WebChatResponse(BaseModel):
-    message: str
-    search_result: WebSearchResult | None = None
-    report_draft: LostReportDraft | None = None
-
-
-class ChatReply(BaseModel):
-    thread_id: str
-    response: WebChatResponse
-
-
 def _response_for_web_chat(response: JupJupChatResponse) -> WebChatResponse:
     """웹 채팅에는 사용자 판단에 필요한 검색 결과만 노출한다.
 
@@ -136,7 +91,7 @@ def _response_for_web_chat(response: JupJupChatResponse) -> WebChatResponse:
 
 @app.get("/", response_class=HTMLResponse)
 def index() -> Response:
-    html_path = Path(__file__).parent / "web_assets" / "index.html"
+    html_path = Path(__file__).parents[1] / "web_assets" / "index.html"
     html = html_path.read_text(encoding="utf-8")
     # 개발 중 화면이 자주 바뀌므로 브라우저가 이전 버전을 캐시해 보여주지 않게 한다.
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})

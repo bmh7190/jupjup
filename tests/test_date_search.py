@@ -58,7 +58,7 @@ class DateSearchTest(unittest.TestCase):
 
     def test_page_limit_is_reported_as_partial_notice_not_failure(self):
         client=Lost112ApiClient('test',page_size=1,detail_limit=0,max_pages_per_window=2)
-        with patch('jupjup.api_client.API_DEFINITIONS',(API_DEFINITIONS[1],)), patch.object(client,'_request_xml',return_value=xml([('wallet','지갑','2026-03-15')],100)):
+        with patch('jupjup.infrastructure.lost112.client.API_DEFINITIONS',(API_DEFINITIONS[1],)), patch.object(client,'_request_xml',return_value=xml([('wallet','지갑','2026-03-15')],100)):
             responses, errors=client.search_all(LostItemQuery(item_name='지갑',lost_date=date(2026,3,14)))
         self.assertEqual(len(responses[0].records),1)
         self.assertFalse(responses[0].search_scopes[0].complete)
@@ -94,7 +94,7 @@ class DateSearchTest(unittest.TestCase):
                 '</item></items></body></response>'
             )
 
-        with patch('jupjup.api_client.API_DEFINITIONS',(API_DEFINITIONS[0],)), patch.object(client,'_request_xml',side_effect=request):
+        with patch('jupjup.infrastructure.lost112.client.API_DEFINITIONS',(API_DEFINITIONS[0],)), patch.object(client,'_request_xml',side_effect=request):
             responses, errors=client.search_all(LostItemQuery(item_name='지갑',lost_date=date(2026,3,14)))
 
         self.assertEqual(len(list_calls),3)
@@ -132,7 +132,7 @@ class DateSearchTest(unittest.TestCase):
                 return xml([])
             pages = {1: [('card','신용카드','2026-03-15')], 2:[('wallet','샤넬 지갑','2026-03-16')], 3:[('recent','지갑','2026-09-10')]}
             return xml(pages[int(params['pageNo'])], 3)
-        with patch('jupjup.api_client.API_DEFINITIONS', (API_DEFINITIONS[1],)), patch.object(client, '_request_xml', side_effect=request):
+        with patch('jupjup.infrastructure.lost112.client.API_DEFINITIONS', (API_DEFINITIONS[1],)), patch.object(client, '_request_xml', side_effect=request):
             responses, errors = client.search_all(LostItemQuery(item_name='지갑', lost_date=date(2026,3,14)))
         self.assertEqual([r.atc_id for response in responses for r in response.records], ['wallet'])
         self.assertEqual([p['pageNo'] for p in calls[:3]], ['1','2','3'])
@@ -148,7 +148,7 @@ class DateSearchTest(unittest.TestCase):
         def request(url, params):
             calls.append(params)
             return xml([(str(i),'지갑','2026-03-15') for i in range(5)])
-        with patch('jupjup.api_client.API_DEFINITIONS', (API_DEFINITIONS[1],)), patch.object(client,'_request_xml',side_effect=request):
+        with patch('jupjup.infrastructure.lost112.client.API_DEFINITIONS', (API_DEFINITIONS[1],)), patch.object(client,'_request_xml',side_effect=request):
             result=JupJupAgentService(client).run(LostItemQuery(item_name='지갑',lost_date=date(2026,3,14)))
         self.assertEqual(len(calls),1)
         self.assertEqual(len(result.candidates),5)
@@ -160,7 +160,7 @@ class DateSearchTest(unittest.TestCase):
             if params.get('START_YMD') != '20260314': return xml([])
             if params['pageNo']=='2': raise TimeoutError('test timeout')
             return xml([('wallet','지갑','2026-03-15')],2)
-        with patch('jupjup.api_client.API_DEFINITIONS', (API_DEFINITIONS[1],)), patch.object(client,'_request_xml',side_effect=request):
+        with patch('jupjup.infrastructure.lost112.client.API_DEFINITIONS', (API_DEFINITIONS[1],)), patch.object(client,'_request_xml',side_effect=request):
             responses, errors=client.search_all(LostItemQuery(item_name='지갑',lost_date=date(2026,3,14)))
         self.assertEqual([r.atc_id for response in responses for r in response.records],['wallet'])
         self.assertFalse(errors)
@@ -168,7 +168,7 @@ class DateSearchTest(unittest.TestCase):
             '전체 조회 시간 제한',
             responses[0].search_scopes[0].partial_reason,
         )
-        with patch('jupjup.api_client.API_DEFINITIONS', (API_DEFINITIONS[1],)), patch.object(
+        with patch('jupjup.infrastructure.lost112.client.API_DEFINITIONS', (API_DEFINITIONS[1],)), patch.object(
             client, '_request_xml', side_effect=request
         ):
             result = JupJupAgentService(client).run(
@@ -180,7 +180,7 @@ class DateSearchTest(unittest.TestCase):
         client=Lost112ApiClient('test',detail_limit=0)
         definition=(API_DEFINITIONS[1],)
 
-        with patch('jupjup.api_client.API_DEFINITIONS',definition), patch.object(
+        with patch('jupjup.infrastructure.lost112.client.API_DEFINITIONS',definition), patch.object(
             client,'_request_xml',return_value=xml([])
         ):
             zero_result=JupJupAgentService(client).run(
@@ -196,7 +196,7 @@ class DateSearchTest(unittest.TestCase):
             TimeoutError('request timeout'),
         ):
             with self.subTest(failure=type(failure).__name__), patch(
-                'jupjup.api_client.API_DEFINITIONS',definition
+                'jupjup.infrastructure.lost112.client.API_DEFINITIONS',definition
             ), patch.object(client,'_request_xml',side_effect=failure):
                 failed=JupJupAgentService(client).run(
                     LostItemQuery(item_name='지갑',lost_date=date(2026,3,14))
@@ -209,7 +209,7 @@ class DateSearchTest(unittest.TestCase):
 
     def test_timeout_without_any_records_remains_an_error(self):
         client=Lost112ApiClient('test',detail_limit=0)
-        with patch('jupjup.api_client.API_DEFINITIONS', (API_DEFINITIONS[1],)), patch.object(client,'_request_xml',side_effect=TimeoutError('test timeout')):
+        with patch('jupjup.infrastructure.lost112.client.API_DEFINITIONS', (API_DEFINITIONS[1],)), patch.object(client,'_request_xml',side_effect=TimeoutError('test timeout')):
             responses, errors=client.search_all(LostItemQuery(item_name='지갑',lost_date=date(2026,3,14)))
         self.assertFalse(responses[0].records)
         self.assertIn('경찰청 습득물', errors)
