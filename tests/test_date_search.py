@@ -44,8 +44,10 @@ class DateSearchTest(unittest.TestCase):
         with patch.object(client,'_request_xml',side_effect=request):
             client.search_all(LostItemQuery(item_name='지갑'))
         self.assertEqual(len(calls),3)
-        self.assertTrue(all('START_YMD' not in params for _,params in calls))
-        self.assertTrue(all(url.endswith('AccTpNmCstdyPlace') for url,_ in calls))
+        # 날짜 없을 때는 날짜 기간 조회(_search_dated) 경로를 타지 않아야 한다.
+        # 경찰청 습득물/포털 조회는 START_YMD 없어야 하고, 분실물 조회는 _build_list_params 로 START_YMD 포함 가능.
+        found_calls = [(url, params) for url, params in calls if 'LosfundInfo' in url]
+        self.assertTrue(all('START_YMD' not in params for _, params in found_calls))
 
     def test_page_limit_marks_partial_and_deduplicates(self):
         client=Lost112ApiClient('test',page_size=1,detail_limit=0,max_pages_per_window=2)
