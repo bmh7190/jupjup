@@ -51,7 +51,25 @@ def print_result(result: AgentResult) -> None:
         print("조건에 맞는 후보를 찾지 못했습니다.")
     for index, candidate in enumerate(result.candidates, start=1):
         record = candidate.record
-        print(f"\n{index}. {record.item_name or '이름 없음'} — {candidate.score}점")
+        confidence_label = {
+            "high": "높음",
+            "medium": "보통",
+            "low": "낮음",
+        }[candidate.confidence]
+        location_scope_label = {
+            "direct": "직접 장소",
+            "district": "같은 시군구",
+            "nearby": "인접 시군구",
+            "region": "같은 시도",
+            "adjacent": "인접 시도",
+            "nationwide": "전국",
+            "unrestricted": "위치 제한 없음",
+        }[candidate.location_scope]
+        print(
+            f"\n{index}. {record.item_name or '이름 없음'} — "
+            f"{candidate.score}점 / 신뢰도 {confidence_label} / "
+            f"검색 범위 {location_scope_label}"
+        )
         print(f"   출처: {record.source.label}")
         print(f"   날짜/장소: {record.event_date or '-'} / {record.event_place or '-'}")
         print(f"   보관장소: {record.custody_place or '-'}")
