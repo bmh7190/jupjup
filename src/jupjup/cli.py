@@ -107,9 +107,7 @@ def main() -> int:
 
         api_client = Lost112ApiClient(
             settings.data_service_key,
-            timeout_seconds=settings.timeout_seconds,
-            page_size=settings.page_size,
-            detail_limit=settings.detail_limit,
+            **settings.api_client_options,
         )
         vision_matcher = None
         if args.vision:

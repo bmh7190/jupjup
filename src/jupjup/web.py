@@ -36,9 +36,7 @@ def _build_agent() -> JupJupChatAgent:
 
     api_client = Lost112ApiClient(
         settings.data_service_key,
-        timeout_seconds=settings.timeout_seconds,
-        page_size=settings.page_size,
-        detail_limit=settings.detail_limit,
+        **settings.api_client_options,
     )
     # cli.py의 기본 동작과 동일하게 vision은 기본적으로 끄고, `--vision`에 해당하는
     # 명시적 옵션 없이는 켜지 않는다. (사진 URL을 OpenAI 서버가 못 받아오면
