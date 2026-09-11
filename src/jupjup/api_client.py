@@ -340,7 +340,7 @@ class Lost112ApiClient:
             if item is None:
                 return record
             detail = self._parse_record(item, definition)
-        except (Lost112ApiError, urllib.error.URLError, ET.ParseError):
+        except (Lost112ApiError, urllib.error.URLError, TimeoutError, ET.ParseError):
             return record
 
         updates = {
