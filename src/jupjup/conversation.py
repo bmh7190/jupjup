@@ -60,6 +60,18 @@ _SEARCH_CANCEL_PATTERN = re.compile(
     r"(?:찾아|조회|검색).{0,10}(?:하지\s*마|말아\s*줘|취소|그만)|"
     r"(?:하지\s*마|말아\s*줘|취소|그만).{0,10}(?:찾아|조회|검색)"
 )
+_SIMILAR_LOST_REPORT_CUE = re.compile(r"(?:유사|비슷|다른\s*사람)")
+_LOST_REPORT_RECORD_CUE = re.compile(r"(?:(?:분실\s*)?신고|분실\s*내역)")
+_REGISTERED_LOST_RECORD_CUE = re.compile(
+    r"(?:(?:(?:등록|신고|게시)(?:된|한)|올라온)\s*"
+    r"(?:분실물|분실\s*신고)|"
+    r"(?:분실물|분실\s*신고).{0,8}"
+    r"(?:(?:등록|신고|게시)(?:된|한)|올라온))"
+)
+_LOOKUP_ACTION_CUE = re.compile(
+    r"(?:확인|조회|검색|보여|찾아|"
+    r"있(?:나|어|나요|을까)|없(?:나|어|나요|을까))"
+)
 _REPORT_CANCEL_PATTERN = re.compile(
     r"(?:신고(?:서|내용|문)?\s*)?(?:작성\s*)?"
     r"(?:하지\s*마|말고|"
@@ -111,6 +123,18 @@ _GENERIC_ITEM_NAMES = {
     "뭐",
     "무언가",
 }
+_GENERIC_SEARCH_CONTEXT_WORDS = _GENERIC_ITEM_NAMES | {
+    "기존",
+    "다른",
+    "등록한",
+    "비슷",
+    "비슷한",
+    "분실",
+    "사람",
+    "신고",
+    "유사",
+    "유사한",
+}
 
 
 def message_content_text(content: Any) -> str:
@@ -151,9 +175,29 @@ def is_explicit_report_request(text: str) -> bool:
     return any(pattern.search(normalized) for pattern in _REPORT_REQUEST_PATTERNS)
 
 
+def is_explicit_similar_lost_report_request(text: str) -> bool:
+    """다른 사용자의 유사 분실 신고 조회를 명시적으로 요청했는지 판별한다."""
+    normalized = re.sub(r"\s+", " ", text.strip())
+    if _SEARCH_CANCEL_PATTERN.search(normalized):
+        return False
+    explicit_similar_request = bool(
+        _SIMILAR_LOST_REPORT_CUE.search(normalized)
+        and _LOST_REPORT_RECORD_CUE.search(normalized)
+    )
+    registered_record_request = bool(
+        _REGISTERED_LOST_RECORD_CUE.search(normalized)
+    )
+    return bool(
+        (explicit_similar_request or registered_record_request)
+        and _LOOKUP_ACTION_CUE.search(normalized)
+    )
+
+
 def is_explicit_search_request(text: str) -> bool:
     """물품을 명시해 바로 조회해 달라는 현재 턴의 표현을 판별한다."""
-    if is_explicit_report_request(text):
+    if is_explicit_report_request(
+        text
+    ) or is_explicit_similar_lost_report_request(text):
         return False
     normalized = re.sub(r"\s+", " ", text.strip())
     if any(pattern.search(normalized) for pattern in _SEARCH_REQUEST_PATTERNS):
@@ -176,6 +220,7 @@ def _is_report_workflow_stop(text: str) -> bool:
     return bool(
         _REPORT_CANCEL_PATTERN.search(normalized)
         or _CONVERSATION_CLOSE_PATTERN.fullmatch(normalized)
+        or is_explicit_similar_lost_report_request(normalized)
         or (
             _SEARCH_COMMAND_PATTERN.search(normalized)
             and not is_explicit_report_request(normalized)
@@ -280,8 +325,13 @@ def _item_name_from_text(text: str) -> str | None:
             words = [re.sub(r"(?:만|도)$", "", word) for word in candidate.split()]
             while words and words[-1] in _GENERIC_ITEM_NAMES:
                 words.pop()
-            if words:
-                return words[-1]
+            meaningful_words = [
+                word
+                for word in words
+                if word not in _GENERIC_SEARCH_CONTEXT_WORDS
+            ]
+            if meaningful_words:
+                return meaningful_words[-1]
     return None
 
 
@@ -292,7 +342,10 @@ def _tool_artifact_source(
         return None
     artifact = message.artifact
     try:
-        if message.name == "search_lost112_candidates":
+        if message.name in {
+            "search_lost112_candidates",
+            "search_similar_lost_reports",
+        }:
             result = (
                 artifact
                 if isinstance(artifact, AgentResult)
@@ -356,6 +409,7 @@ def report_context_from_messages(messages: list[Any]) -> dict[str, Any]:
             for call in message.tool_calls:
                 if call.get("name") not in {
                     "search_lost112_candidates",
+                    "search_similar_lost_reports",
                     "prepare_lost_report_draft",
                 }:
                     continue
@@ -380,6 +434,19 @@ def search_tool_called_since_latest_user(messages: list[Any]) -> bool:
         if (
             isinstance(message, ToolMessage)
             and message.name == "search_lost112_candidates"
+        ):
+            return True
+    return False
+
+
+def similar_reports_tool_called_since_latest_user(messages: list[Any]) -> bool:
+    """현재 사용자 턴에서 유사 분실 신고 Tool이 이미 실행됐는지 확인한다."""
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage):
+            return False
+        if (
+            isinstance(message, ToolMessage)
+            and message.name == "search_similar_lost_reports"
         ):
             return True
     return False

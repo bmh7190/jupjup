@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
-from typing import Mapping
+from typing import Collection, Mapping
 
 from .models import ApiSearchResponse, LostItemQuery, RecordSource, SearchRecord, SearchScope
 
@@ -94,6 +94,10 @@ API_DEFINITIONS = (
     ),
 )
 
+FOUND_RECORD_SOURCES = frozenset(
+    {RecordSource.POLICE_FOUND, RecordSource.PORTAL_FOUND}
+)
+
 
 # 경찰청 공통코드의 상위 물품 분류. 자연어가 더 구체적일 수 있으므로
 # 각 분류의 대표 별칭도 함께 둔다. 코드 조회 API를 승인받으면 이 표를
@@ -160,20 +164,30 @@ class Lost112ApiClient:
         self.search_budget_seconds = max(0.01, search_budget_seconds)
 
     def search_all(
-        self, query: LostItemQuery
+        self,
+        query: LostItemQuery,
+        *,
+        sources: Collection[RecordSource] | None = None,
     ) -> tuple[list[ApiSearchResponse], dict[str, str]]:
-        """API 세 개를 독립적으로 호출하고 일부 실패도 결과와 함께 돌려준다."""
+        """선택한 출처를 독립적으로 호출하고 일부 실패도 결과와 함께 돌려준다."""
         if not query.item_name:
             raise ValueError("API 검색에는 item_name이 필요합니다.")
+        definitions = tuple(
+            definition
+            for definition in API_DEFINITIONS
+            if sources is None or definition.source in sources
+        )
+        if not definitions:
+            return [], {}
         if query.lost_date:
-            return self._search_dated(query)
+            return self._search_dated(query, definitions)
 
         responses: list[ApiSearchResponse] = []
         errors: dict[str, str] = {}
-        with ThreadPoolExecutor(max_workers=len(API_DEFINITIONS)) as executor:
+        with ThreadPoolExecutor(max_workers=len(definitions)) as executor:
             futures = {
                 executor.submit(self.search, definition, query): definition
-                for definition in API_DEFINITIONS
+                for definition in definitions
             }
             for future in as_completed(futures):
                 definition = futures[future]
@@ -182,19 +196,43 @@ class Lost112ApiClient:
                 except Exception as exc:
                     errors[definition.source.label] = str(exc)
 
-        order = {definition.source: index for index, definition in enumerate(API_DEFINITIONS)}
+        order = {
+            definition.source: index
+            for index, definition in enumerate(definitions)
+        }
         responses.sort(key=lambda response: order[response.source])
         return responses, errors
 
-    def _search_dated(self, query: LostItemQuery) -> tuple[list[ApiSearchResponse], dict[str, str]]:
+    def _search_dated(
+        self,
+        query: LostItemQuery,
+        definitions: tuple[ApiDefinition, ...],
+    ) -> tuple[list[ApiSearchResponse], dict[str, str]]:
         assert query.lost_date is not None
         windows = build_search_windows(query.lost_date)
         deadline = time.monotonic() + self.search_budget_seconds
-        combined = {d.source: ApiSearchResponse(source=d.source, total_count=0, records=[]) for d in API_DEFINITIONS}
+        combined = {
+            definition.source: ApiSearchResponse(
+                source=definition.source,
+                total_count=0,
+                records=[],
+            )
+            for definition in definitions
+        }
         seen: set[tuple[RecordSource, str, str | None]] = set()
         for start, end in windows:
-            with ThreadPoolExecutor(max_workers=len(API_DEFINITIONS)) as executor:
-                futures = [executor.submit(self._search_window, d, query, start, end, deadline) for d in API_DEFINITIONS]
+            with ThreadPoolExecutor(max_workers=len(definitions)) as executor:
+                futures = [
+                    executor.submit(
+                        self._search_window,
+                        definition,
+                        query,
+                        start,
+                        end,
+                        deadline,
+                    )
+                    for definition in definitions
+                ]
                 for future in as_completed(futures):
                     result = future.result()
                     target = combined[result.source]
@@ -205,11 +243,17 @@ class Lost112ApiClient:
                         if key not in seen:
                             seen.add(key)
                             target.records.append(record)
-            if sum(len(r.records) for r in combined.values() if r.source != RecordSource.POLICE_LOST) >= 5:
+            found_responses = [
+                response
+                for response in combined.values()
+                if response.source in FOUND_RECORD_SOURCES
+            ]
+            target_responses = found_responses or list(combined.values())
+            if sum(len(response.records) for response in target_responses) >= 5:
                 break
             if time.monotonic() >= deadline:
                 break
-        for definition in API_DEFINITIONS:
+        for definition in definitions:
             self._enrich_dated_details(
                 definition, combined[definition.source], query, deadline
             )

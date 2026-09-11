@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 from unittest.mock import patch
 
 from jupjup.api_client import Lost112ApiClient, API_DEFINITIONS, build_search_windows
-from jupjup.models import LostItemQuery
+from jupjup.models import LostItemQuery, RecordSource
 from jupjup.service import JupJupAgentService
 
 
@@ -38,6 +38,23 @@ class DateSearchTest(unittest.TestCase):
         # 경찰청 습득물/포털 조회는 START_YMD 없어야 하고, 분실물 조회는 _build_list_params 로 START_YMD 포함 가능.
         found_calls = [(url, params) for url, params in calls if 'LosfundInfo' in url]
         self.assertTrue(all('START_YMD' not in params for _, params in found_calls))
+
+    def test_source_filter_calls_only_requested_api(self):
+        client = Lost112ApiClient('test', detail_limit=0)
+        calls = []
+
+        def request(url, params):
+            calls.append((url, params))
+            return xml([])
+
+        with patch.object(client, '_request_xml', side_effect=request):
+            client.search_all(
+                LostItemQuery(item_name='지갑'),
+                sources={RecordSource.POLICE_FOUND},
+            )
+
+        self.assertEqual(len(calls), 1)
+        self.assertIn('/LosfundInfoInqireService/', calls[0][0])
 
     def test_page_limit_is_reported_as_partial_notice_not_failure(self):
         client=Lost112ApiClient('test',page_size=1,detail_limit=0,max_pages_per_window=2)

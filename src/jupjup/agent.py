@@ -26,6 +26,7 @@ from .conversation import (
     has_search_item_context,
     is_explicit_report_request,
     is_explicit_search_request,
+    is_explicit_similar_lost_report_request,
     is_report_workflow_turn,
     is_search_cancel_request,
     latest_user_text as _latest_user_text,
@@ -33,6 +34,7 @@ from .conversation import (
     report_context_from_messages,
     report_tool_called_since_latest_user,
     search_tool_called_since_latest_user,
+    similar_reports_tool_called_since_latest_user,
 )
 from .models import AgentResult, LostItemQuery, LostReportDraft
 from .report import build_lost_report_draft
@@ -43,7 +45,7 @@ SYSTEM_PROMPT = """당신은 분실물 찾기를 돕는 '줍줍이'입니다.
 사용자와 한국어로 짧고 명확하게 대화하세요.
 
 다음 원칙을 지키세요.
-- 먼저 사용자의 의도를 습득물 조회와 분실신고 작성 도움으로 구분하세요.
+- 먼저 사용자의 의도를 습득물 조회, 유사 분실 신고 조회, 분실신고 작성 도움으로 구분하세요.
 - 사용자의 설명에서 물품명, 분실일, 장소, 지역, 색상, 크기, 브랜드, 수량, 특징을 파악하세요.
 - region은 광역 시도명으로 통일하세요. 예: 강남역·광진구는 서울, 우도는 제주입니다.
 - item_name에는 '지갑'처럼 짧은 일반 물품명을 넣고 '샤넬' 같은 브랜드와 색상은 별도 인자로 전달하세요.
@@ -51,7 +53,7 @@ SYSTEM_PROMPT = """당신은 분실물 찾기를 돕는 '줍줍이'입니다.
 - 같은 대화에서 신고서에 필요한 정보를 답하거나 초안 수정을 요청하면, 이전에 확인한 신고 정보와 합쳐 prepare_lost_report_draft Tool을 다시 호출하세요.
 - 사용자가 신고서 작성을 취소하거나 습득물 검색으로 전환하거나 대화를 마무리하면 신고서 Tool을 더 호출하지 마세요.
 - 단순히 물건을 잃어버렸다고 설명하거나 습득물 조회를 요청한 경우에는 신고서 Tool을 호출하지 마세요.
-- 신고서 작성만 요청한 경우에는 search_lost112_candidates Tool을 호출하지 마세요.
+- 신고서 작성만 요청한 경우에는 검색 Tool을 호출하지 마세요.
 - 신고서 작성 요청에서는 물품명, 분실 날짜, 구체적인 장소가 없으면 초안의 next_question으로 먼저 보완하세요. 필수 정보가 모이기 전에는 초안을 준비했다고 말하지 마세요.
 - 시간, 지역, 색상, 크기, 브랜드, 수량, 특징, 분실 경위는 선택 정보입니다. 필수 정보처럼 답변을 요구하지 말고 완성된 초안의 개선 제안으로만 안내하세요.
 - prepare_lost_report_draft 결과가 준비되면 복사용 문장, 누락 항목, 개선 제안, 주의사항을 안내하세요.
@@ -60,10 +62,14 @@ SYSTEM_PROMPT = """당신은 분실물 찾기를 돕는 '줍줍이'입니다.
 - 도난은 분실물 신고와 구분하고, 자동차번호판은 방문 신고가 필요하다는 Tool 결과를 따르세요.
 - 조회 요청에서 물품명을 알 수 없으면 검색하지 말고 먼저 물어보세요.
 - 조회 요청에서 물품명을 알 수 있으면 확인이나 동의를 다시 묻지 말고 같은 턴에 search_lost112_candidates Tool로 실제 데이터를 조회하세요.
+- 일반 습득물 조회에는 search_lost112_candidates만 사용하세요. 이 Tool은 경찰청 습득물과 포털기관 습득물만 조회합니다.
+- 사용자가 다른 사람의 유사하거나 비슷한 분실 신고를 확인해 달라고 명시한 경우에만 search_similar_lost_reports를 사용하세요.
+- 유사 분실 신고 요청에 물품명이 생략되면 같은 대화에서 앞서 확인한 물품 조건을 사용하세요. 이전 조건도 없으면 물품명을 먼저 물어보세요.
 - 사용자가 제공하지 않은 조건은 추측해서 Tool 인자에 넣지 마세요.
 - 조회하지 않은 결과를 찾았다고 말하지 마세요.
 - 습득물 후보와 다른 사람이 등록한 유사 분실 신고를 구분하세요.
-- 후보를 안내할 때 점수, 일치 근거, 사진 URL, 상세 URL을 생략하지 마세요.
+- 후보 점수·신뢰도·일치 근거는 내부 정렬에만 사용하고 사용자에게 노출하지 마세요.
+- 후보에는 물품명, 색상·분류, 습득 날짜·시간·장소, 보관 장소·상태, 기관명, 사진과 상세 URL을 사용하세요.
 - API 오류가 있으면 성공한 출처와 실패한 출처를 구분해서 알려주세요.
 - 날짜가 있으면 Tool이 분실일부터 7일, 다음 7일, 그 후 한 달 순서로 검색합니다. 기간을 임의로 최신 날짜로 바꾸지 마세요.
 - search_scopes의 실제 조회 기간과 일부 조회 여부를 안내하세요. 조회 오류를 결과 없음으로 표현하지 마세요.
@@ -134,6 +140,37 @@ def force_explicit_search_tool_for_model(request: Any, handler: Any) -> Any:
 
 
 @wrap_model_call
+def route_similar_reports_for_model(request: Any, handler: Any) -> Any:
+    """유사 신고 요청에서만 전용 Tool을 열고 다른 기능과 분리한다."""
+    user_text = _latest_user_text(request.messages)
+    is_similar_request = is_explicit_similar_lost_report_request(user_text)
+    if not is_similar_request:
+        tools = [
+            tool_definition
+            for tool_definition in request.tools
+            if _tool_name(tool_definition) != "search_similar_lost_reports"
+        ]
+        return handler(request.override(tools=tools))
+
+    tools = [
+        tool_definition
+        for tool_definition in request.tools
+        if _tool_name(tool_definition)
+        not in {"search_lost112_candidates", "prepare_lost_report_draft"}
+    ]
+    if not has_search_item_context(request.messages):
+        return handler(request.override(tools=[]))
+    if similar_reports_tool_called_since_latest_user(request.messages):
+        return handler(request.override(tools=tools))
+    return handler(
+        request.override(
+            tools=tools,
+            tool_choice="search_similar_lost_reports",
+        )
+    )
+
+
+@wrap_model_call
 def route_report_workflow_for_model(request: Any, handler: Any) -> Any:
     """신고서 흐름에서는 검색 Tool을 숨기고 신고서 Tool을 확실히 실행한다."""
     if not is_report_workflow_turn(request.messages):
@@ -142,7 +179,8 @@ def route_report_workflow_for_model(request: Any, handler: Any) -> Any:
     tools = [
         tool_definition
         for tool_definition in request.tools
-        if _tool_name(tool_definition) != "search_lost112_candidates"
+        if _tool_name(tool_definition)
+        not in {"search_lost112_candidates", "search_similar_lost_reports"}
     ]
     if report_tool_called_since_latest_user(request.messages):
         return handler(request.override(tools=tools))
@@ -177,7 +215,10 @@ def block_unrequested_report_tool(request: Any, handler: Any) -> Any:
 @wrap_tool_call
 def block_search_without_item_name(request: Any, handler: Any) -> Any:
     """빈 물품명 검색을 Tool 검증 전에 막아 재시도와 API 호출을 피한다."""
-    if request.tool_call["name"] != "search_lost112_candidates":
+    if request.tool_call["name"] not in {
+        "search_lost112_candidates",
+        "search_similar_lost_reports",
+    }:
         return handler(request)
 
     item_name = request.tool_call.get("args", {}).get("item_name")
@@ -217,6 +258,49 @@ def merge_report_context(request: Any, handler: Any) -> Any:
     return handler(request.override(tool_call=tool_call))
 
 
+@wrap_tool_call
+def merge_similar_report_search_context(request: Any, handler: Any) -> Any:
+    """유사 신고 후속 요청에 같은 대화에서 확인한 검색 조건을 채운다."""
+    if request.tool_call["name"] != "search_similar_lost_reports":
+        return handler(request)
+
+    args = request.tool_call.get("args", {})
+    if not isinstance(args, dict):
+        return handler(request)
+    allowed_fields = {
+        "item_name",
+        "category",
+        "lost_date",
+        "lost_time",
+        "lost_place",
+        "region",
+        "color",
+        "brand",
+        "features",
+    }
+    previous = {
+        key: value
+        for key, value in report_context_from_messages(
+            request.state.get("messages", [])
+        ).items()
+        if key in allowed_fields
+    }
+    current_item_name = args.get("item_name")
+    previous_item_name = previous.get("item_name")
+    if (
+        isinstance(current_item_name, str)
+        and current_item_name.strip()
+        and isinstance(previous_item_name, str)
+        and previous_item_name.strip()
+        and current_item_name.strip().casefold()
+        != previous_item_name.strip().casefold()
+    ):
+        previous = {}
+    merged = {**previous, **args}
+    tool_call = {**request.tool_call, "args": merged}
+    return handler(request.override(tool_call=tool_call))
+
+
 def _result_for_model(result: AgentResult) -> str:
     """LLM에는 사용자 안내에 필요한 필드만 전달해 컨텍스트를 제한한다."""
     payload = {
@@ -226,15 +310,16 @@ def _result_for_model(result: AgentResult) -> str:
         "search_scopes": [scope.model_dump(mode="json") for scope in result.search_scopes],
         "candidates": [
             {
-                "score": candidate.score,
-                "confidence": candidate.confidence,
-                "location_scope": candidate.location_scope,
-                "reasons": candidate.reasons,
                 "source": candidate.record.source.label,
                 "item_name": candidate.record.item_name,
+                "category": candidate.record.category,
+                "color": candidate.record.color,
                 "event_date": candidate.record.event_date,
+                "event_time": candidate.record.event_time,
                 "event_place": candidate.record.event_place,
                 "custody_place": candidate.record.custody_place,
+                "status": candidate.record.status,
+                "organization_name": candidate.record.organization_name,
                 "image_url": candidate.record.image_url,
                 "detail_url": candidate.record.detail_url,
             }
@@ -269,7 +354,7 @@ def create_lost112_search_tool(service: JupJupAgentService) -> BaseTool:
         features: list[str] | None = None,
         candidate_limit: int = 5,
     ) -> tuple[str, AgentResult]:
-        """경찰청 분실물·습득물·포털기관 습득물 API를 조회하고 유사 후보를 추천한다.
+        """경찰청·포털기관 습득물 API를 조회하고 유사 후보를 추천한다.
 
         사용자가 잃어버린 물건을 설명했고 최소한 물품명을 알 수 있을 때 호출한다.
         제공되지 않은 조건은 빈 값으로 둔다.
@@ -290,6 +375,48 @@ def create_lost112_search_tool(service: JupJupAgentService) -> BaseTool:
         return _result_for_model(result), result
 
     return search_lost112_candidates
+
+
+def create_similar_lost_reports_tool(service: JupJupAgentService) -> BaseTool:
+    """다른 사용자의 분실 신고만 별도로 조회하는 Tool을 만든다."""
+
+    @tool("search_similar_lost_reports", response_format="content_and_artifact")
+    def search_similar_lost_reports(
+        item_name: str,
+        category: str | None = None,
+        lost_date: date | None = None,
+        lost_time: str | None = None,
+        lost_place: str | None = None,
+        region: str | None = None,
+        color: str | None = None,
+        brand: str | None = None,
+        features: list[str] | None = None,
+        report_limit: int = 5,
+    ) -> tuple[str, AgentResult]:
+        """경찰청에 등록된 다른 사용자의 유사 분실 신고를 조회한다.
+
+        사용자가 유사 분실 신고 확인을 명시적으로 요청했을 때만 호출한다.
+        같은 대화에서 이미 확인한 분실 조건은 Middleware가 합쳐준다.
+        """
+        query = LostItemQuery(
+            item_name=item_name,
+            category=category,
+            lost_date=lost_date,
+            lost_time=lost_time,
+            lost_place=lost_place,
+            region=region,
+            color=color,
+            brand=brand,
+            features=features or [],
+            search_ready=True,
+        )
+        result = service.find_similar_lost_reports(
+            query,
+            report_limit=max(1, min(report_limit, 10)),
+        )
+        return _result_for_model(result), result
+
+    return search_similar_lost_reports
 
 
 def create_lost_report_tool() -> BaseTool:
@@ -365,7 +492,11 @@ def build_middlewares() -> list[Any]:
         ),
         ToolRetryMiddleware(
             max_retries=1,
-            tools=["search_lost112_candidates", "prepare_lost_report_draft"],
+            tools=[
+                "search_lost112_candidates",
+                "search_similar_lost_reports",
+                "prepare_lost_report_draft",
+            ],
             on_failure="continue",
             initial_delay=0.5,
         ),
@@ -373,12 +504,17 @@ def build_middlewares() -> list[Any]:
             tool_name="search_lost112_candidates", run_limit=1
         ),
         ToolCallLimitMiddleware(
+            tool_name="search_similar_lost_reports", run_limit=1
+        ),
+        ToolCallLimitMiddleware(
             tool_name="prepare_lost_report_draft", run_limit=1
         ),
         force_explicit_search_tool_for_model,
+        route_similar_reports_for_model,
         route_report_workflow_for_model,
         gate_report_tool_for_model,
         block_unrequested_report_tool,
+        merge_similar_report_search_context,
         block_search_without_item_name,
         merge_report_context,
         ModelCallLimitMiddleware(run_limit=4, exit_behavior="end"),
@@ -400,6 +536,26 @@ def _search_result_message(result: AgentResult) -> str:
     return "분실물 조회에 실패했습니다. 아래 오류 내용을 확인해주세요."
 
 
+def _similar_lost_reports_message(result: AgentResult) -> str:
+    """명시적으로 요청한 유사 분실 신고를 짧은 채팅 답변으로 만든다."""
+    if not result.similar_lost_reports:
+        if result.errors and not result.source_counts:
+            return "유사한 기존 분실 신고를 조회하지 못했습니다. 잠시 후 다시 시도해주세요."
+        return "같은 조건으로 등록된 유사한 기존 분실 신고를 찾지 못했습니다."
+
+    lines = [
+        f"유사한 기존 분실 신고 {len(result.similar_lost_reports)}건을 찾았습니다."
+    ]
+    for record in result.similar_lost_reports:
+        lines.append(
+            f"- {record.item_name or '이름 없음'} / "
+            f"{record.event_date or '-'} / {record.event_place or '-'}"
+        )
+        if record.detail_url:
+            lines.append(f"  상세: {record.detail_url}")
+    return "\n".join(lines)
+
+
 class JupJupChatAgent:
     """대화 Memory를 가진 실제 LangChain Tool-calling Agent."""
 
@@ -417,11 +573,12 @@ class JupJupChatAgent:
             model = ChatOpenAI(model=model_name, api_key=api_key, temperature=0)
 
         self.search_tool = create_lost112_search_tool(service)
+        self.similar_reports_tool = create_similar_lost_reports_tool(service)
         self.report_tool = create_lost_report_tool()
         self.checkpointer = InMemorySaver()
         self.graph = create_agent(
             model=model,
-            tools=[self.search_tool, self.report_tool],
+            tools=[self.search_tool, self.similar_reports_tool, self.report_tool],
             system_prompt=SYSTEM_PROMPT,
             middleware=build_middlewares(),
             checkpointer=self.checkpointer,
@@ -447,6 +604,7 @@ class JupJupChatAgent:
 
         final_message: AIMessage | None = None
         search_result: AgentResult | None = None
+        similar_reports_result: AgentResult | None = None
         report_draft: LostReportDraft | None = None
         for message in messages[current_turn_start + 1 :]:
             if isinstance(message, AIMessage):
@@ -459,6 +617,12 @@ class JupJupChatAgent:
                 search_result = message.artifact
             elif (
                 isinstance(message, ToolMessage)
+                and message.name == self.similar_reports_tool.name
+                and isinstance(message.artifact, AgentResult)
+            ):
+                similar_reports_result = message.artifact
+            elif (
+                isinstance(message, ToolMessage)
                 and message.name == self.report_tool.name
                 and isinstance(message.artifact, LostReportDraft)
             ):
@@ -469,6 +633,8 @@ class JupJupChatAgent:
         )
         if search_result is not None:
             response_message = _search_result_message(search_result)
+        elif similar_reports_result is not None:
+            response_message = _similar_lost_reports_message(similar_reports_result)
         elif needs_report_details and report_draft is not None:
             response_message = report_draft.next_question or (
                 "신고서 초안을 만들려면 필요한 분실 정보를 알려주세요."
