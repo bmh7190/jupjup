@@ -39,6 +39,13 @@ def print_result(result: AgentResult) -> None:
     for source, error in result.errors.items():
         print(f"- {source}: 조회 실패 ({error})")
 
+    if result.search_scopes:
+        print("\n[실제 조회 범위]")
+        for scope in result.search_scopes:
+            status = "조회 완료" if scope.complete else "일부 조회/오류"
+            print(f"- {scope.source.label}: {scope.start_date}~{scope.end_date}, "
+                  f"{scope.pages_completed}페이지·{scope.retrieved_count}건 확인 ({status})")
+
     print("\n[추천 습득물 후보]")
     if not result.candidates:
         print("조건에 맞는 후보를 찾지 못했습니다.")
@@ -100,9 +107,7 @@ def main() -> int:
 
         api_client = Lost112ApiClient(
             settings.data_service_key,
-            timeout_seconds=settings.timeout_seconds,
-            page_size=settings.page_size,
-            detail_limit=settings.detail_limit,
+            **settings.api_client_options,
         )
         vision_matcher = None
         if args.vision:

@@ -96,6 +96,18 @@ class ApiSearchResponse(BaseModel):
     source: RecordSource
     total_count: int
     records: list[SearchRecord]
+    search_scopes: list[SearchScope] = Field(default_factory=list)
+
+
+class SearchScope(BaseModel):
+    source: RecordSource
+    start_date: date
+    end_date: date
+    pages_completed: int = 0
+    retrieved_count: int = 0
+    total_count: int = 0
+    complete: bool = False
+    error: str | None = None
 
 
 class AgentResult(BaseModel):
@@ -104,9 +116,9 @@ class AgentResult(BaseModel):
     similar_lost_reports: list[SearchRecord]
     source_counts: dict[str, int]
     errors: dict[str, str] = Field(default_factory=dict)
+    search_scopes: list[SearchScope] = Field(default_factory=list)
 
 
 class VisionAssessment(BaseModel):
     similarity: float = Field(ge=0.0, le=1.0, description="설명과 사진의 일치도")
     reason: str = Field(description="판정 근거 한 문장")
-
