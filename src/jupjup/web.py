@@ -110,8 +110,12 @@ def chat(payload: ChatRequest) -> ChatReply:
     try:
         response = agent.chat(text, thread_id=thread_id)
     except Exception as exc:  # noqa: BLE001 - 서버가 죽지 않고 오류를 화면에 보여준다.
-        logger.exception("Agent 실행 중 오류")
-        response = JupJupChatResponse(message=f"실행 중 오류가 발생했습니다: {exc}")
+        # 외부 SDK 예외에는 요청 헤더가 포함될 수 있으므로 스택과 원문을
+        # 배포 로그나 사용자 응답에 남기지 않는다.
+        logger.error("Agent 실행 중 오류 (%s)", type(exc).__name__)
+        response = JupJupChatResponse(
+            message="실행 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+        )
 
     return ChatReply(thread_id=thread_id, response=response)
 
